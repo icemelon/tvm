@@ -23,6 +23,8 @@ import tvm
 from .. import ir_pass
 from .. import expr as _expr
 from .. import op as _op
+from .. import ty as _ty
+from .. import scope_builder as _scope_builder
 from ... import nd as _nd
 
 from .common import StrAttrsDict
@@ -648,6 +650,71 @@ def _mx_deformable_convolution(inputs, attrs):
     return res
 
 
+def _mx_foreach_op(inputs, attrs, subgraph, dtype_info, mod):
+    from tvm.relay.prelude import Prelude
+    in_data_locs = json.loads(attrs.get_str('in_data_locs'))
+    in_state_locs = json.loads(attrs.get_str('in_state_locs'))
+    remain_locs = json.loads(attrs.get_str('remain_locs'))
+
+    num_data = len(in_data_locs)
+    num_states = len(in_state_locs)
+    num_outputs = len(subgraph["heads"]) - num_states
+
+    data = inputs[:num_data]
+    prev_states = inputs[num_data:num_data+num_states]
+    params = inputs[num_data+num_states:]
+    num_iter = _expr.var("num_iter", dtype='int32', shape=())
+    loop_iter = _expr.var("i", dtype='int32', shape=())
+
+    p = Prelude(mod)
+    nil = p.nil
+    cons = p.cons
+    l = p.l
+
+    loop = _expr.GlobalVar("loop")
+    # import pdb; pdb.set_trace()
+    body_sb = _scope_builder.ScopeBuilder()
+    with body_sb.if_scope(_op.equal(loop_iter, num_iter)):
+        body_sb.ret(_expr.Tuple([nil()] + prev_states))
+    with body_sb.else_scope():
+        loop_body_args = [None] * len(inputs)
+        for k, v in enumerate(in_data_locs):
+            assert loop_body_args[v] is None
+            loop_body_args[v] = _op.take(data[k], loop_iter, 0)
+        for k, v in enumerate(in_state_locs):
+            assert loop_body_args[v] is None
+            loop_body_args[v] = prev_states[k]
+        for k, v in enumerate(remain_locs):
+            assert loop_body_args[v] is None
+            loop_body_args[v] = params[k]
+        loop_body = _from_mxnet_impl(mod, subgraph, {}, dtype_info)
+        loop_body_ret = _expr.Call(loop_body, loop_body_args)
+
+        if num_outputs == 1:
+            out = _expr.TupleGetItem(loop_body_ret, 0)
+        else:
+            out = _expr.Tuple([_expr.TupleGetItem(loop_body_ret, i) for i in range(num_outputs)])
+        states = [_expr.TupleGetItem(loop_body_ret, num_outputs+i) for i in range(num_states)]
+        recur_ret = _expr.Call(loop, data + states + params + [num_iter, loop_iter + _expr.const(1)])
+        all_outs = cons(out, _expr.TupleGetItem(recur_ret, 0))
+        body_sb.ret(_expr.Tuple([all_outs, _expr.TupleGetItem(recur_ret, 1)]))
+
+    body = body_sb.get()
+    loop_args = inputs + [num_iter, loop_iter]
+    ret_type = [l(ir_pass.infer_type(out).checked_type)]
+    # ret_type = [l(_ty.IncompleteType())]
+    for state in states:
+        ret_type.append(ir_pass.infer_type(state).checked_type)
+    func = _expr.Function(loop_args, body, ret_type=_ty.TupleType(ret_type))
+    mod[loop] = func
+
+    data0_shape = _op.shape_of(inputs[0])
+    num_iter = _op.take(data0_shape, _expr.const(0))
+    loop_args = inputs + [num_iter, _expr.const(0)]
+    ret = _expr.Call(loop, loop_args)
+    return _expr.TupleWrapper(ret, 2)
+
+
 # Note: due to attribute conversion constraint
 # ops in the identity set must be attribute free
 _identity_list = [
@@ -796,6 +863,8 @@ _convert_map = {
     "_contrib_MultiProposal" : _mx_proposal,
     "_contrib_box_nms" : _mx_box_nms,
     "_contrib_DeformableConvolution" : _mx_deformable_convolution,
+    # control flow
+    "_foreach" : _mx_foreach_op,
     # List of missing operators that are present in NNVMv1
     # TODO(tvm-tvm): support all operators.
     #
@@ -807,7 +876,7 @@ _convert_map = {
 _convert_map.update({k : _rename(k) for k in _identity_list})
 
 
-def _from_mxnet_impl(symbol, shape_dict, dtype_info):
+def _from_mxnet_impl(mod, symbol, shape_dict, dtype_info):
     """Convert mxnet symbol to compatible relay Function.
 
     Reconstruct a relay Function by traversing the mxnet symbol.
@@ -830,7 +899,10 @@ def _from_mxnet_impl(symbol, shape_dict, dtype_info):
         Converted relay Function
     """
     assert symbol is not None
-    jgraph = json.loads(symbol.tojson())
+    if isinstance(symbol, dict):
+        jgraph = symbol
+    else:
+        jgraph = json.loads(symbol.tojson())
     jnodes = jgraph["nodes"]
     node_map = {}
 
@@ -847,12 +919,19 @@ def _from_mxnet_impl(symbol, shape_dict, dtype_info):
                 dtype = dtype_info
             node_map[nid] = [_expr.var(node_name, shape=shape, dtype=dtype)]
         elif op_name in _convert_map:
-            res = _convert_map[op_name](children, attrs)
+#            print("processing node {}".format(node))
+            if op_name == '_foreach':
+                # parse subgraph
+                subgraph = node['subgraphs'][0]
+                res = _convert_map[op_name](children, attrs, subgraph, dtype_info, mod)
+            else:
+                res = _convert_map[op_name](children, attrs)            
             if isinstance(res, (_expr.TupleWrapper, tuple, list)):
                 pass
             elif isinstance(res, _expr.Expr):
                 res = [res]
             else:
+                print("res is {}:{}".format(res, type(res)))
                 raise RuntimeError("unexpected type %s" % type(res))
             node_map[nid] = res
         else:
@@ -861,9 +940,10 @@ def _from_mxnet_impl(symbol, shape_dict, dtype_info):
 
     outputs = [node_map[e[0]][e[1]] for e in jgraph["heads"]]
     outputs = outputs[0] if len(outputs) == 1 else _expr.Tuple(outputs)
+    if isinstance(outputs, _expr.Function):
+        return outputs
     func = _expr.Function(ir_pass.free_vars(outputs), outputs)
     return func
-
 
 def _update_shape_dtype(shape, dtype, params):
     """Update shape dtype given params information"""
@@ -888,7 +968,8 @@ def from_mxnet(symbol,
                dtype="float32",
                arg_params=None,
                aux_params=None,
-               input_symbols=None):
+               input_symbols=None,
+               module=None):
     """Convert from MXNet"s model into compatible relay Function.
 
     Parameters
@@ -930,7 +1011,7 @@ def from_mxnet(symbol,
         for k, v in aux_params.items():
             params[k] = _nd.array(v.asnumpy())
         shape, dtype = _update_shape_dtype(shape, dtype, params)
-        sym = _from_mxnet_impl(symbol, shape, dtype)
+        sym = _from_mxnet_impl(module, symbol, shape, dtype)
     elif isinstance(symbol, mx.gluon.HybridBlock):
         if arg_params is not None or aux_params is not None:
             raise ValueError("arg_params and aux_params ae not used when importing HybridBlock")
@@ -946,7 +1027,7 @@ def from_mxnet(symbol,
         if isinstance(sym, (list, tuple)):
             sym = mx.sym.Group(sym)
         shape, dtype = _update_shape_dtype(shape, dtype, params)
-        sym = _from_mxnet_impl(sym, shape, dtype)
+        sym = _from_mxnet_impl(module, sym, shape, dtype)
     elif isinstance(symbol, mx.gluon.Block):
         raise NotImplementedError("Only Hybrid Blocks are supported now.")
     else:

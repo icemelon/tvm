@@ -598,6 +598,7 @@ def build(inputs,
                                  "of LoweredFunc, or dict of str to list of "
                                  "LoweredFunc.")
             if x.name in fname_set:
+                continue
                 raise ValueError("Duplicate function name %s" % x.name)
             fname_set.add(x.name)
 
@@ -614,6 +615,7 @@ def build(inputs,
     fhost_all = []
     device_modules = []
     for tar, flist in target_flist.items():
+        flist = list(set(flist))
         fhost, mdev = _build_for_device(flist, tar, target_host)
         # Save the current lowered functions of the host and the device module.
         fhost_all += fhost

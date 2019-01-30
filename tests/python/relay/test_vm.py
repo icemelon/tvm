@@ -26,6 +26,24 @@ def veval(f, *args, ctx=tvm.cpu()):
         else:
             return ex.evaluate(mod[mod.entry_func])(*args)
 
+def test_shape_of():
+    a = tvm.var('a')
+    b = tvm.var('b')
+    x = relay.var("x", shape=(a, b), dtype='float32')
+    s = relay.op.shape_of(x)
+    t = relay.take(s, relay.const(1))
+    sb = ScopeBuilder()
+    seq_length = sb.let('seq_length', t)
+    with sb.if_scope(relay.equal(seq_length, relay.const(20, dtype='int32'))):
+        sb.ret(seq_length)
+    with sb.else_scope():
+        sb.ret(seq_length)
+    func = relay.Function([x], sb.get())
+
+    x_data = np.random.rand(20,10).astype('float32')
+    res = eval_vm(func, tvm.cpu(), x_data)
+    print("res is {}".format(res))
+
 def test_split():
     x = relay.var('x', shape=(12,))
     y = relay.split(x, 3, axis=0).astuple()
@@ -222,6 +240,89 @@ def test_let_scalar():
     result = veval(f, x_data)
     tvm.testing.assert_allclose(result.asnumpy(), x_data + 42.0)
 
+def import_mxnet_model(fname, num_states):
+    ctx = mx.context.cpu()
+    data_names = ['data0']
+    for i in range(num_states):
+        data_names.append('data%s' % (i+1))
+
+    model_data_dir = os.path.dirname(os.path.realpath(__file__))
+    net = gluon.nn.SymbolBlock.imports("%s/model_zoo_data/%s-symbol.json.data" % (model_data_dir, fname), data_names,
+                                       "%s/model_zoo_data/%s-0001.params.data" % (model_data_dir, fname), ctx=ctx)
+    net.hybridize()
+    return net
+
+def test_rnn(cell_type):
+    input_size = 128
+    hidden_size = 128
+    batch, seq_len = 1, tvm.var('seq_len')
+    data_shape= (seq_len, batch, input_size)
+    state_shape = (batch, hidden_size)
+    num_states = 2 if cell_type == 'lstm' else 1
+    mx_net = import_mxnet_model("%s_i128_h128" % cell_type, num_states)
+
+    shapes = {'data': data_shape}
+    mx_input_syms = []
+    mx_input_syms.append(mx.sym.Variable("data"))
+    for i in range(num_states):
+        shapes['state%s' % i] = state_shape
+        mx_input_syms.append(mx.sym.Variable("state%s" % i))
+
+    mod = relay.module.Module()
+    relay_net, params = relay.frontend.from_mxnet(mx_net, shape=shapes, input_symbols=mx_input_syms, module=mod)
+    params = params.items()
+
+    loop = None
+    for v, func in mod.functions.items():
+        if v.name_hint == 'loop':
+            loop = v
+            print(relay.ir_pass.infer_type(func, mod=mod))
+            # print("func params: {}".format(func.params))
+
+    inputs = [relay.var('data')]
+    for i in range(num_states):
+        inputs.append(relay.var('state%s' % i))
+    for name, _ in params:
+        inputs.append(relay.var(name))
+    mod[mod.entry_func] = relay.Function(inputs, relay.Call(relay_net, inputs))
+    print(relay.ir_pass.infer_type(mod[mod.entry_func], mod=mod))
+
+    l = 5
+    data_v = np.random.rand(l, batch, 128).astype('float32')
+    states_v = [np.random.rand(*state_shape).astype('float32') for _ in range(num_states)]
+    params_v = [e[1].asnumpy() for e in params]
+    print('eval vm')
+    result = _eval_vm(mod, tvm.cpu(), data_v, *states_v, *params_v)
+    print("Relay result is {}".format(result))
+
+    mx_inputs = [mx.nd.array(x) for x in [data_v, *states_v]]
+    mx_outputs = mx_net(*mx_inputs)
+    print("======== MXNet result ==========")
+    for o in mx_outputs:
+        print("MXNet output : {}".format(o.asnumpy()))
+
+def test_while():
+    class Scan(gluon.HybridBlock):
+        def hybrid_forward(self, F, data):
+            def sum(state, i):
+                s = state + F.take(data, i)
+                return [], [s, i + 1]
+            def sum_cond(state, i):
+                return i < 4
+            out, state = F.contrib.while_loop(sum_cond, sum,
+                                              [F.zeros((1)), F.zeros((1))], max_iterations=5)
+            return out, state
+
+    data = mx.nd.arange(5)
+    scan_layer = Scan()
+    scan_layer.hybridize()
+    out, state = scan_layer(data)
+    mx_sym = scan_layer._cached_graph[1]
+    #print(mx_sym.tojson())
+    # Fail at this line
+    sym, _ = relay.frontend.from_mxnet(mx_sym, shape={'data': (5,)})
+
+
 def test_closure():
     x = relay.var('x', shape=())
     y = relay.var('y', shape=())
@@ -233,16 +334,17 @@ def test_closure():
     tvm.testing.assert_allclose(res.asnumpy(), 3.0)
 
 if __name__ == "__main__":
-    test_id()
-    test_op()
-    test_cond()
-    test_simple_if()
-    test_simple_call()
-    test_count_loop()
-    test_sum_loop()
-    test_tuple_fst()
-    test_tuple_second()
-    test_let_scalar()
-    test_let_tensor()
-    test_list_constructor()
-    test_closure()
+    # test_id()
+    # test_op()
+    # test_cond()
+    # test_simple_if()
+    # test_simple_call()
+    # test_count_loop()
+    # test_sum_loop()
+    # test_tuple_fst()
+    # test_tuple_second()
+    # test_let_scalar()
+    # test_let_tensor()
+    # test_list_constructor()
+    # test_closure()
+    test_rnn('rnn')
