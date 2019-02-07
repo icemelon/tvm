@@ -268,6 +268,81 @@ def _mx_multibox_detection(inputs, attrs):
     return _op.vision.nms(ret[0], ret[1], **new_attrs1)
 
 
+def _mx_take(inputs, attrs):
+    # Warning: in fact take in topi doesn't support clip either, indices must be
+    # within the range
+    if attrs.get_str("mode", "clip") != "clip":
+        raise RuntimeError("Only support clip mode in take")
+    axis = attrs.get_int("axis", 0)
+    return _op.take(inputs[0], inputs[1], axis)
+
+
+def _mx_squeeze(inputs, attrs):
+    axis = attrs.get_int_tuple("axis", None)
+    return _op.squeeze(inputs[0], axis)
+
+
+def _mx_broadcast_axis(inputs, attrs):
+    axis = attrs.get_int_tuple("axis", [])
+    size = attrs.get_int_tuple("size", [])
+    assert len(axis) == len(size)
+    if len(axis) == 0:
+        return inputs[0]
+    src_shape = ir_pass.infer_type(inputs[0])._checked_type_.shape
+    tgt_shape = []
+    for i in range(len(src_shape)):
+        if i not in axis:
+            tgt_shape.append(src_shape[i])
+        else:
+            assert int(src_shape[i]) == 1
+            idx = axis.index(i)
+            tgt_shape.append(size[idx])
+    return _op.broadcast_to(inputs[0], tgt_shape)
+
+
+def _mx_slice_axis(inputs, attrs):
+    ty = ir_pass.infer_type(inputs[0])._checked_type_
+    axis = attrs.get_int("axis")
+    ax_beg = attrs.get_int("begin")
+    ax_end = attrs.get_int("end")
+    if ax_beg < 0:
+        ax_beg += int(ty.shape[axis])
+    if ax_end < 0:
+        ax_end += int(ty.shape[axis])
+    begin = []
+    end = []
+    for i in range(len(ty.shape)):
+        if i != axis:
+            begin.append(None)
+            end.append(None)
+        else:
+            begin.append(ax_beg)
+            end.append(ax_end)
+    return _op.strided_slice(inputs[0], begin, end)
+
+
+def _mx_embedding(inputs, attrs):
+    assert len(inputs) == 2
+    data, weight = inputs
+    data_shape = ir_pass.infer_type(data)._checked_type_.shape
+    indices = _op.reshape(data, (-1))
+    out = _op.take(weight, indices.astype('int'), axis=0)
+    newshape = list(data_shape) + [-1]
+    return _op.reshape(out, newshape)
+
+
+def _mx_contrib_div_sqrt_dim(inputs, attrs):
+    ty = ir_pass.infer_type(inputs[0])._checked_type_
+    #sqrt_dim = _op.sqrt(_expr.const(ty.shape[-1], ty.dtype))
+    sqrt_dim = _op.sqrt(ty.shape[-1])
+    out = inputs[0] / sqrt_dim
+    return out
+
+
+def _mx_contrib_sarange(inputs, attrs):
+    pass
+
+
 # Note: due to attribute conversion constraint
 # ops in the identity set must be attribute free
 _identity_list = [
@@ -282,6 +357,7 @@ _identity_list = [
     "zeros_like",
     "ones_like",
     "batch_dot",
+    "where",
 ]
 
 _convert_map = {
@@ -353,8 +429,15 @@ _convert_map = {
     "Concat"        : _mx_concat,
     "concat"        : _mx_concat,
     "LeakyReLU"     : _mx_leaky_relu,
+    "take"          : _mx_take,
+    "squeeze"       : _mx_squeeze,
+    "slice_axis"    : _mx_slice_axis,
+    "broadcast_axis": _mx_broadcast_axis,
     "SoftmaxOutput" : _mx_softmax_output,
-    "SoftmaxActivation" : _mx_softmax_activation,
+    "Embedding"     : _mx_embedding,
+    "SoftmaxActivation"    : _mx_softmax_activation,
+    "_contrib_div_sqrt_dim": _mx_contrib_div_sqrt_dim,
+    "_contrib_sarange"     : _mx_contrib_sarange,
     # vision
     "_contrib_MultiBoxPrior" : _mx_multibox_prior,
     "_contrib_MultiBoxDetection" : _mx_multibox_detection,
