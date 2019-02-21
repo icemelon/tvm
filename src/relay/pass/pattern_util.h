@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- * 
+ *
  *   http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -32,6 +32,7 @@
 #include <tvm/relay/expr.h>
 #include <tvm/relay/attrs/nn.h>
 #include <tvm/relay/attrs/transform.h>
+#include <tvm/relay/attrs/reduce.h>
 #include <string>
 
 
@@ -359,6 +360,25 @@ inline Expr ReshapeLike(Expr lhs, Expr rhs) {
 inline Expr Copy(Expr data) {
   static const Op& op = Op::Get("copy");
   return CallNode::make(op, {data}, Attrs(), {});
+}
+
+
+inline Expr Mean(Expr data, Array<Integer> axis, bool keepdims, bool exclude) {
+  auto attrs = make_node<ReduceAttrs>();
+  attrs->axis = std::move(axis);
+  attrs->keepdims = keepdims;
+  attrs->exclude = exclude;
+  static const Op& op = Op::Get("mean");
+  return CallNode::make(op, {data}, Attrs(attrs), {});
+}
+
+inline Expr Variance(Expr data, Expr mean, Array<Integer> axis, bool keepdims, bool exclude) {
+  auto attrs = make_node<ReduceAttrs>();
+  attrs->axis = std::move(axis);
+  attrs->keepdims = keepdims;
+  attrs->exclude = exclude;
+  static const Op& op = Op::Get("variance");
+  return CallNode::make(op, {data, mean}, Attrs(attrs), {});
 }
 
 
