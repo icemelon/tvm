@@ -228,5 +228,21 @@ TVM_STATIC_IR_FUNCTOR_REGISTER(IRPrinter, vtable)
   p->stream << "RefTypeNode(" << node->value << ")";
 });
 
+IndexExpr Any() {
+  // This doesn't work for serialization.
+  static IndexExpr __any;
+  if (!__any.defined()) {
+    __any = tvm::Var("any");
+  }
+  CHECK(__any.defined());
+  return __any;
+}
+
+TVM_REGISTER_API("relay._make.Any")
+.set_body([](TVMArgs args, TVMRetValue* ret) {
+  *ret = Any();
+});
+
+
 }  // namespace relay
 }  // namespace tvm

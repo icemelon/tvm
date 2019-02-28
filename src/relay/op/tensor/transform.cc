@@ -978,21 +978,38 @@ and type as the input array.
 // arange operator
 TVM_REGISTER_NODE_TYPE(ArangeAttrs);
 
+int32_t ToScalar(const runtime::NDArray& array) {
+  return reinterpret_cast<int32_t*>(array->data)[0];
+}
+
 bool ArangeRel(const Array<Type>& types,
                int num_inputs,
                const Attrs& attrs,
                const TypeReporter& reporter) {
-  CHECK_EQ(types.size(), 1);
+  CHECK_EQ(types.size(), 4);
   const ArangeAttrs* param = attrs.as<ArangeAttrs>();
-  IndexExpr num_elem = tvm::cast(tvm::Int(32), tvm::ceil(
-      tvm::cast(tvm::Float(32), param->stop - param->start) / param->step));
-  if (const tvm::ir::IntImm* val = num_elem.as<tvm::ir::IntImm>()) {
-    CHECK_GT(val->value, 0)
+  const ConstantNode *cstart, *cstop, *cstep;
+
+  reporter->Assign(types[0], TensorTypeNode::make({}, Int(32)));
+  reporter->Assign(types[1], TensorTypeNode::make({}, Int(32)));
+  reporter->Assign(types[2], TensorTypeNode::make({}, Int(32)));
+
+  if ((cstart = param->start.as<ConstantNode>()) &&
+      (cstop = param->stop.as<ConstantNode>()) &&
+      (cstep = param->step.as<ConstantNode>())) {
+    int32_t start = ToScalar(cstart->data);
+    int32_t stop = ToScalar(cstop->data);
+    int32_t step = ToScalar(cstep->data);
+    int32_t num_elem = std::ceil(stop - start) / step;
+    CHECK_GT(num_elem, 0)
         << "Invalid arange attributes (start, stop, step): " << param->start
         << ", " << param->stop << ", " << param->step;
+    reporter->Assign(types[3], TensorTypeNode::make({num_elem}, param->dtype));
+    return true;
+  } else {
+    reporter->Assign(types[3], TensorTypeNode::make({Any()}, param->dtype));
+    return true;
   }
-  reporter->Assign(types[0], TensorTypeNode::make({num_elem}, param->dtype));
-  return true;
 }
 
 Array<Tensor> ArangeCompute(const Attrs& attrs,
@@ -1000,31 +1017,43 @@ Array<Tensor> ArangeCompute(const Attrs& attrs,
                             const Type& out_type,
                             const Target& target) {
   const ArangeAttrs* param = attrs.as<ArangeAttrs>();
-  return { topi::arange(param->start, param->stop, param->step, param->dtype) };
+  auto start = topi::reshape(inputs[0], { tvm::Integer(1) });
+  auto stop = topi::reshape(inputs[1], { tvm::Integer(1) });
+  auto step = topi::reshape(inputs[2], { tvm::Integer(1) });
+  return { topi::arange(start(0), stop(0), step(0), param->dtype) };
 }
 
-Expr MakeArange(tvm::Expr start,
-                tvm::Expr stop,
-                tvm::Expr step,
+Expr MakeArange(Expr start,
+                Expr stop,
+                Expr step,
                 DataType dtype) {
   auto attrs = make_node<ArangeAttrs>();
-  attrs->start = std::move(start);
-  attrs->stop = std::move(stop);
-  attrs->step = std::move(step);
-  attrs->dtype = std::move(dtype);
+  attrs->start = start;
+  attrs->stop = stop;
+  attrs->step = step;
+  attrs->dtype = dtype;
   static const Op& op = Op::Get("arange");
-  return CallNode::make(op, {}, Attrs(attrs), {});
+  return CallNode::make(op, {start, stop, step}, Attrs(attrs), {});
 }
 
 TVM_REGISTER_API("relay.op._make.arange")
 .set_body_typed(MakeArange);
 
+// Curent problem is we want to actualy use dependency to type
+// the operator
+//
+// WE can use current hack to duplicate the arguments as attrs.
+//
+// We can extend relay to quantify over inputs, but doesn't solve
+// fully dynamic case.
+//
+// ...
 RELAY_REGISTER_OP("arange")
 .describe(R"code(Returns evenly spaced values within a given interval.
 
 )code" TVM_ADD_FILELINE)
 .set_attrs_type_key("relay.attrs.ArangeAttrs")
-.set_num_inputs(0)
+.set_num_inputs(3)
 .set_support_level(3)
 .add_type_rel("Arange", ArangeRel)
 .set_attr<FTVMCompute>("FTVMCompute", ArangeCompute)

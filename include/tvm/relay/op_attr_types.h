@@ -158,6 +158,10 @@ using FForwardRewrite = runtime::TypedPackedFunc<
 using FPrimalGradient = runtime::TypedPackedFunc<tvm::Array<Expr>(const Expr& orig_call,
                                                                   const Expr& output_grad)>;
 
+enum AnyCodegenStrategy {
+  kVariableDimensions
+};
+
 }  // namespace relay
 }  // namespace tvm
 #endif  // TVM_RELAY_OP_ATTR_TYPES_H_
