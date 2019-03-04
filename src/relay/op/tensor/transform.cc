@@ -36,6 +36,8 @@
 #include "../op_common.h"
 #include "../../../arithmetic/compute_expr.h"
 #include "../../pass/alter_op_layout.h"
+#include "../layout.h"
+#include <tvm/relay/logging.h>
 
 namespace tvm {
 namespace relay {
@@ -1012,15 +1014,57 @@ bool ArangeRel(const Array<Type>& types,
   }
 }
 
+inline Tensor dyn_arange(const tvm::Tensor& start,
+                     const tvm::Tensor& stop,
+                     const tvm::Tensor& step,
+                     tvm::Type dtype,
+                     std::string name = "tensor",
+                     std::string tag = topi::kInjective) {
+  tvm::Expr num_elem = tvm::Var("num_elem");
+  return tvm::compute({num_elem}, [&](const Array<tvm::Var>& indices) {
+    return tvm::cast(dtype, start[0] + step[0] * indices[0]);
+  }, name, tag);
+}
+
 Array<Tensor> ArangeCompute(const Attrs& attrs,
                             const Array<Tensor>& inputs,
                             const Type& out_type,
                             const Target& target) {
   const ArangeAttrs* param = attrs.as<ArangeAttrs>();
-  auto start = topi::reshape(inputs[0], { tvm::Integer(1) });
-  auto stop = topi::reshape(inputs[1], { tvm::Integer(1) });
-  auto step = topi::reshape(inputs[2], { tvm::Integer(1) });
-  return { topi::arange(start(0), stop(0), step(0), param->dtype) };
+  Tensor start = inputs[0];
+  Tensor stop =  inputs[1];
+  Tensor step = inputs[2];
+  Array<tvm::Expr> empty = {0};
+  return { dyn_arange(start, stop, step, param->dtype) };
+}
+
+Array<Shape> ArangeShapeFunc(const Array<Input>& inputs) {
+  CHECK(inputs.size() == 3u);
+  DLContext cpu_ctx;
+  cpu_ctx.device_type = kDLCPU;
+  cpu_ctx.device_id = 0;
+  runtime::NDArray cpu_start = inputs[0]->data.CopyTo(cpu_ctx);
+  runtime::NDArray cpu_stop = inputs[1]->data.CopyTo(cpu_ctx);
+  runtime::NDArray cpu_step = inputs[2]->data.CopyTo(cpu_ctx);
+  CHECK(cpu_start->dtype.code == 0U && cpu_start->dtype.bits == 32)
+    << "code=" << cpu_start->dtype.code
+    << " bits=" << cpu_start->dtype.bits;
+  CHECK(cpu_stop->dtype.code == 0U && cpu_stop->dtype.bits == 32)
+    << "code=" << cpu_stop->dtype.code
+    << " bits=" << cpu_stop->dtype.bits;
+  CHECK(cpu_step->dtype.code == 0U && cpu_step->dtype.bits == 32)
+    << "code=" << cpu_step->dtype.code
+    << " bits=" << cpu_step->dtype.bits;
+  auto start = reinterpret_cast<uint32_t*>(cpu_start->data)[0];
+  auto stop = reinterpret_cast<uint32_t*>(cpu_stop->data)[0];
+  auto step = reinterpret_cast<uint32_t*>(cpu_step->data)[0];
+  auto size = std::ceil(static_cast<double>(stop - start) / step);
+  RELAY_LOG(INFO)
+    << "start= " << start
+    << "stop= " << stop
+    << "step= " << step
+    << "size= " << size;
+  return { { tvm::Integer(size) } };
 }
 
 Expr MakeArange(Expr start,
@@ -1057,7 +1101,9 @@ RELAY_REGISTER_OP("arange")
 .set_support_level(3)
 .add_type_rel("Arange", ArangeRel)
 .set_attr<FTVMCompute>("FTVMCompute", ArangeCompute)
-.set_attr<TOpPattern>("TOpPattern", kInjective);
+.set_attr<TOpPattern>("TOpPattern", kInjective)
+.set_attr<AnyCodegenStrategy>("AnyCodegenStrategy", kVariableDimensions)
+.set_attr<FShapeFunc>("FShapeFunc", ArangeShapeFunc);
 
 // repeat operator
 TVM_REGISTER_NODE_TYPE(RepeatAttrs);

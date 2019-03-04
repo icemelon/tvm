@@ -186,6 +186,7 @@ class TypeSolver::Unifier : public TypeFunctor<Type(const Type&, const Type&)> {
     }
 
     LOG(FATAL) << ulhs << " " << urhs;
+    return tvm::Expr();
   }
 
   Type VisitType_(const TensorTypeNode* op, const Type& tn) final {

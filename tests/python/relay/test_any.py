@@ -15,7 +15,7 @@ def test_dyn_arange():
     f = relay.Function([x], y2, type_params=[m, n, k])
     data = np.random.rand(10, 5, 3).astype('float32')
     result = ex.evaluate(f)(data)
-    import pdb; pdb.set_trace()
+    np.testing.assert_allclose(result.asnumpy(), np.array(range(10)))
 
 if __name__ == "__main__":
     test_dyn_arange()
