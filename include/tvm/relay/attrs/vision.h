@@ -30,6 +30,24 @@
 namespace tvm {
 namespace relay {
 
+/*! \brief Attributes used in argsort operators */
+struct ArgsortAttrs : public tvm::AttrsNode<ArgsortAttrs> {
+  int axis;
+  bool is_ascend;
+  std::string dtype;
+
+  TVM_DECLARE_ATTRS(ArgsortAttrs, "relay.attrs.ArgsortAttrs") {
+    TVM_ATTR_FIELD(axis).set_default(-1)
+      .describe("Axis along which to sort the input tensor."
+                "If not given, the flattened array is used.");
+    TVM_ATTR_FIELD(is_ascend).set_default(true)
+      .describe("Whether to sort in ascending or descending order."
+                "By default, sort in ascending order");
+    TVM_ATTR_FIELD(dtype).set_default("float32")
+      .describe("DType of the output indices.");
+  }
+};
+
 /*! \brief Attributes used in multibox_prior operators */
 struct MultiBoxPriorAttrs : public tvm::AttrsNode<MultiBoxPriorAttrs> {
   Array<IndexExpr> sizes;
@@ -92,6 +110,8 @@ struct NonMaximumSuppressionAttrs : public tvm::AttrsNode<NonMaximumSuppressionA
   double iou_threshold;
   bool force_suppress;
   int top_k;
+  int coord_start;
+  int score_index;
   int id_index;
   bool return_indices;
   bool invalid_to_bottom;
@@ -106,6 +126,10 @@ struct NonMaximumSuppressionAttrs : public tvm::AttrsNode<NonMaximumSuppressionA
       .describe("Suppress all detections regardless of class_id.");
     TVM_ATTR_FIELD(top_k).set_default(-1)
       .describe("Keep maximum top k detections before nms, -1 for no limit.");
+    TVM_ATTR_FIELD(coord_start).set_default(2)
+      .describe("Start index of the consecutive 4 coordinates.");
+    TVM_ATTR_FIELD(score_index).set_default(1)
+      .describe("Index of the scores/confidence of boxes.");
     TVM_ATTR_FIELD(id_index).set_default(0)
       .describe("Axis index of id.");
     TVM_ATTR_FIELD(return_indices).set_default(true)

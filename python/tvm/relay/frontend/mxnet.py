@@ -188,6 +188,13 @@ def _mx_pooling(inputs, attrs):
         'Operator {} Pooling is not supported for frontend MXNet.'.format(pool_type.capitalize()))
 
 
+def _mx_adaptive_pooling(inputs, attrs):
+    output_size = attrs.get_int_tuple("output_size", [])
+    if output_size != (1,):
+        raise RuntimeError("AdaptiveAvgPooling with output_size other than 1 is not supported yet.")
+    return _op.nn.global_avg_pool2d(inputs[0])
+
+
 def _mx_dropout(inputs, attrs):
     rate = attrs.get_float("p", 0.5)
     return _op.nn.dropout(inputs[0], rate=rate)
@@ -539,15 +546,6 @@ def _mx_box_nms(inputs, attrs):
     id_index = attrs.get_int('id_index', -1)
     in_format = attrs.get_str('in_format', 'corner')
     out_format = attrs.get_str('out_format', 'corner')
-    if coord_start != 2:
-        raise tvm.error.OpAttributeInvalid(
-            'Value of attribute "coord_start" must equal 2 for operator box_nms.')
-    if score_index != 1:
-        raise tvm.error.OpAttributeInvalid(
-            'Value of attribute "score_index" must equal 1 for operator box_nms.')
-    if id_index != -1 and int(id_index) != 0:
-        raise tvm.error.OpAttributeInvalid(
-            'Value of attribute "id_index" must equal either -1 or 0 for operator box_nms.')
     if in_format != 'corner':
         raise tvm.error.OpAttributeInvalid(
             'Value of attribute "in_format" must equal "corner" for operator box_nms.')
@@ -561,6 +559,8 @@ def _mx_box_nms(inputs, attrs):
                                              iou_threshold=iou_thresh,
                                              force_suppress=force_suppress,
                                              top_k=top_k,
+                                             coord_start=coord_start,
+                                             score_index=score_index,
                                              id_index=id_index,
                                              return_indices=False,
                                              invalid_to_bottom=True)
@@ -658,6 +658,15 @@ def _mx_deformable_convolution(inputs, attrs):
     return res
 
 
+def _mx_argsort(inputs, attrs):
+    assert len(inputs) == 1
+    new_attrs = {}
+    new_attrs["axis"] = attrs.get_int("axis", -1)
+    new_attrs["is_ascend"] = attrs.get_bool("is_ascend", True)
+    new_attrs["dtype"] = attrs.get_str("dtype", "float32")
+    return _op.vision.argsort(inputs[0], **new_attrs)
+
+
 def _mx_contrib_div_sqrt_dim(inputs, attrs):
     assert len(inputs) == 1
     ndim = len(ir_pass.infer_type(inputs[0])._checked_type_.shape)
@@ -673,7 +682,7 @@ def _mx_foreach(inputs, attrs, subgraphs, dtype_info, mod):
     nil = p.nil
     cons = p.cons
     l = p.l
-    
+
     assert len(subgraphs) == 1
     in_data_locs = json.loads(attrs.get_str('in_data_locs'))
     in_state_locs = json.loads(attrs.get_str('in_state_locs'))
@@ -705,7 +714,7 @@ def _mx_foreach(inputs, attrs, subgraphs, dtype_info, mod):
         for k, v in enumerate(remain_locs):
             assert loop_body_args[v] is None
             loop_body_args[v] = params[k]
-        loop_body_arg_shapes = [ir_pass.infer_type(arg).checked_type.shape 
+        loop_body_arg_shapes = [ir_pass.infer_type(arg).checked_type.shape
                                 for arg in loop_body_args]
         loop_body = _from_mxnet_impl(mod, subgraphs[0], loop_body_arg_shapes, dtype_info)
         loop_body_ret = _expr.Call(loop_body, loop_body_args)
@@ -742,20 +751,20 @@ def _mx_while_loop(inputs, attrs, subgraphs, dtype_info, mod):
     nil = p.nil
     cons = p.cons
     l = p.l
-    
+
     assert len(subgraphs) == 2
     input_args = []
     for i, arg in enumerate(inputs):
         var = _expr.var("arg%s" % i, ir_pass.infer_type(arg).checked_type)
         input_args.append(var)
-    
+
     cond_input_locs = attrs.get_int_tuple("cond_input_locs")
     func_input_locs = attrs.get_int_tuple("func_input_locs")
     # indices of state vars in the func_input_locs
     func_var_locs = attrs.get_int_tuple("func_var_locs")
     num_out_data = attrs.get_int("num_out_data")
     num_outputs = attrs.get_int("num_outputs")
-    
+
     all_outs = _expr.var("all_outs")
     while_loop = _expr.GlobalVar("while_loop")
     prev_states = [input_args[func_input_locs[j]] for j in func_var_locs]
@@ -765,7 +774,7 @@ def _mx_while_loop(inputs, attrs, subgraphs, dtype_info, mod):
     cond_body = _from_mxnet_impl(mod, subgraphs[0], cond_arg_shapes, dtype_info)
     cond_ret = _expr.Call(cond_body, cond_args)
     cond = _op.take(cond_ret, _expr.const(0)).astype("bool")
-    
+
     sb = _scope_builder.ScopeBuilder()
     with sb.if_scope(cond):
         func_args = [input_args[j] for j in func_input_locs]
@@ -785,7 +794,7 @@ def _mx_while_loop(inputs, attrs, subgraphs, dtype_info, mod):
         sb.ret(recur_ret)
     with sb.else_scope():
         sb.ret(_expr.Tuple([all_outs] + prev_states))
-    
+
     body = sb.get()
     while_args = input_args + [all_outs]
     # print(while_args)
@@ -807,6 +816,7 @@ def _mx_layer_norm(inputs, attrs):
 
 def _mx_sequence_mask(inputs, attrs):
     return inputs[0]
+
 
 # Note: due to attribute conversion constraint
 # ops in the identity set must be attribute free
@@ -944,6 +954,7 @@ _convert_map = {
     "BlockGrad"     : _mx_BlockGrad,
     "shape_array"   : _mx_shape_array,
     "Embedding"     : _mx_embedding,
+    "argsort"       : _mx_argsort,
     "SoftmaxOutput" : _mx_softmax_output,
     "SoftmaxActivation" : _mx_softmax_activation,
     "smooth_l1"     : _mx_smooth_l1,
@@ -958,6 +969,7 @@ _convert_map = {
     "_contrib_MultiProposal" : _mx_proposal,
     "_contrib_box_nms" : _mx_box_nms,
     "_contrib_DeformableConvolution" : _mx_deformable_convolution,
+    "_contrib_AdaptiveAvgPooling2D" : _mx_adaptive_pooling,
     # control flow
     "_foreach"    : _mx_foreach,
     "_while_loop" : _mx_while_loop,
@@ -1028,7 +1040,7 @@ def _from_mxnet_impl(mod, symbol, shape_dict, dtype_info):
                 subgraphs = node['subgraphs']
                 res = _convert_map[op_name](children, attrs, subgraphs, dtype_info, mod)
             else:
-                res = _convert_map[op_name](children, attrs)            
+                res = _convert_map[op_name](children, attrs)
             if isinstance(res, (_expr.TupleWrapper, tuple, list)):
                 pass
             elif isinstance(res, _expr.Expr):

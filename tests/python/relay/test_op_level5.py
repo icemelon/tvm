@@ -177,12 +177,13 @@ def test_get_valid_counts():
         assert "score_threshold" in z.astext()
         func = relay.Function([x], z.astuple())
         func = relay.ir_pass.infer_type(func)
-        ctx_list = [("llvm", tvm.cpu(0))]
-        for target, ctx in ctx_list:
+        for target, ctx in ctx_list():
+            if target == 'cuda':
+                return
             intrp = relay.create_executor("debug", ctx=ctx, target=target)
             out = intrp.evaluate(func)(np_data)
-            tvm.testing.assert_allclose(out[0].asnumpy(), np_out1, rtol=1e-3)
-            tvm.testing.assert_allclose(out[1].asnumpy(), np_out2, rtol=1e-3)
+            tvm.testing.assert_allclose(out[0].asnumpy(), np_out1, rtol=1e-3, atol=1e-04)
+            tvm.testing.assert_allclose(out[1].asnumpy(), np_out2, rtol=1e-3, atol=1e-04)
 
     verify_get_valid_counts((1, 2500, 6), 0)
     verify_get_valid_counts((1, 2500, 6), -1)
@@ -195,9 +196,13 @@ def test_non_max_suppression():
                    iou_threshold=0.5, force_suppress=False, top_k=-1,
                    check_type_only=False):
         x0 = relay.var("x0", relay.ty.TensorType(dshape, "float32"))
-        x1 = relay.var("x1", relay.ty.TensorType((dshape[0],), "int"))
-        z = relay.vision.non_max_suppression(x0, x1, -1, iou_threshold, force_suppress, top_k, return_indices=False)
-        z_indices = relay.vision.non_max_suppression(x0, x1, -1, iou_threshold, force_suppress, top_k)
+        x1 = relay.var("x1", relay.ty.TensorType((dshape[0],), "int32"))
+        z = relay.vision.non_max_suppression(x0, x1, max_output_size = -1, \
+            iou_threshold = iou_threshold, force_suppress = force_suppress, \
+            top_k = top_k, return_indices=False)
+        z_indices = relay.vision.non_max_suppression(x0, x1, max_output_size = -1, \
+                    iou_threshold = iou_threshold, force_suppress = force_suppress, \
+                    top_k = top_k)
         assert "iou_threshold" in z.astext()
         assert "iou_threshold" in z_indices.astext()
         zz = relay.ir_pass.infer_type(z)
@@ -212,8 +217,7 @@ def test_non_max_suppression():
         func = relay.ir_pass.infer_type(func)
         func_indices = relay.Function([x0, x1], z_indices)
         func_indices = relay.ir_pass.infer_type(func_indices)
-        ctx_list = [("llvm", tvm.cpu(0))]
-        for target, ctx in ctx_list:
+        for target, ctx in ctx_list():
             intrp1 = relay.create_executor("graph", ctx=ctx, target=target)
             op_res1 = intrp1.evaluate(func)(x0_data, x1_data)
             op_indices_res1 = intrp1.evaluate(func_indices)(x0_data, x1_data)
@@ -296,8 +300,7 @@ def test_multibox_transform_loc():
         nms = relay.vision.non_max_suppression(mtl[0], mtl[1], return_indices=False)
         func = relay.Function([cls_prob, loc_pred, anchors], nms)
         func = relay.ir_pass.infer_type(func)
-        ctx_list = [("llvm", tvm.cpu(0))]
-        for target, ctx in ctx_list:
+        for target, ctx in ctx_list():
             intrp1 = relay.create_executor("graph", ctx=ctx, target=target)
             op_res1 = intrp1.evaluate(func)(np_cls_prob, np_loc_preds,
                                             np_anchors)
@@ -565,11 +568,33 @@ def test_deformable_conv2d():
     test_run(2, 4, 16, 4, 4, 1)
 
 
+def test_argsort():
+    def verify_argsort(shape, axis, is_ascend):
+        x = relay.var("x", relay.TensorType(shape, "float32"))
+        z = relay.vision.argsort(x, axis=axis, is_ascend=is_ascend)
+        zz = relay.ir_pass.infer_type(z)
+        func = relay.Function([x], z)
+        x_data = np.random.uniform(size=shape).astype("float32")
+        if is_ascend:
+            ref_res = np.argsort(x_data, axis=axis)
+        else:
+            ref_res = np.argsort(-x_data, axis=axis)
+
+        for target, ctx in ctx_list():
+            for kind in ["graph", "debug"]:
+                intrp = relay.create_executor(kind, ctx=ctx, target=target)
+                op_res = intrp.evaluate(func)(x_data)
+                tvm.testing.assert_allclose(op_res.asnumpy(), ref_res.astype("float"), rtol=1e-5)
+    verify_argsort((2, 3, 4), axis=0, is_ascend=False)
+    verify_argsort((1, 4, 6), axis=1, is_ascend=True)
+    verify_argsort((3, 5, 6), axis=-1, is_ascend=False)
+
+
 if __name__ == "__main__":
     test_resize_infer_type()
     test_resize()
-    test_multibox_prior()
     test_multibox_transform_loc()
+    test_multibox_prior()
     test_get_valid_counts()
     test_roi_align()
     test_roi_pool()
@@ -578,3 +603,4 @@ if __name__ == "__main__":
     test_yolo_reorg()
     test_non_max_suppression()
     test_deformable_conv2d()
+    test_argsort()
