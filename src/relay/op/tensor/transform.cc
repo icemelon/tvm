@@ -33,11 +33,10 @@
 #include <topi/reduction.h>
 #include <topi/nn.h>
 #include <vector>
+#include <tvm/relay/logging.h>
 #include "../op_common.h"
 #include "../../../arithmetic/compute_expr.h"
 #include "../../pass/alter_op_layout.h"
-#include "../layout.h"
-#include <tvm/relay/logging.h>
 
 namespace tvm {
 namespace relay {
