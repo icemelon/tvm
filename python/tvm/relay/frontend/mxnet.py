@@ -447,6 +447,14 @@ def _mx_arange(inputs, attrs):
     return _op.arange(**new_attrs)
 
 
+def _mx_contrib_sarange(inputs, attrs):
+    data = ir_pass.infer_type(inputs[0])
+    data = ir_pass.fold_constant(data)
+    assert isinstance(data, _expr.Constant)
+    stop = data.data.asnumpy()[0]
+    return _op.arange(stop)
+
+
 def _mx_repeat(inputs, attrs):
     assert len(inputs) == 1
     new_attrs = {}
@@ -648,6 +656,15 @@ def _mx_deformable_convolution(inputs, attrs):
         assert len(inputs) == 4
         res = _op.nn.bias_add(res, inputs[3])
     return res
+
+
+def _mx_contrib_div_sqrt_dim(inputs, attrs):
+    assert len(inputs) == 1
+    ndim = len(ir_pass.infer_type(inputs[0])._checked_type_.shape)
+    dim = _op.take(_op.shape_of(inputs[0]), _expr.const(ndim-1, dtype="int32"))
+    sqrt_dim = _op.sqrt(dim.astype('float32'))
+    out = inputs[0] / sqrt_dim
+    return out
 
 
 def _mx_foreach_op(inputs, attrs, subgraph, dtype_info, mod):
@@ -865,6 +882,9 @@ _convert_map = {
     "_contrib_DeformableConvolution" : _mx_deformable_convolution,
     # control flow
     "_foreach" : _mx_foreach_op,
+    # junru branch op
+    "_contrib_div_sqrt_dim": _mx_contrib_div_sqrt_dim,
+    "_contrib_sarange"     : _mx_contrib_sarange,
     # List of missing operators that are present in NNVMv1
     # TODO(tvm-tvm): support all operators.
     #
