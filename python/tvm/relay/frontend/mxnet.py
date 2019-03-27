@@ -742,6 +742,9 @@ def _mx_layer_norm(inputs, attrs):
     return _op.nn.layer_norm(*inputs, **new_attrs)
 
 
+def _mx_sequence_mask(inputs, attrs):
+    return inputs[0]
+
 # Note: due to attribute conversion constraint
 # ops in the identity set must be attribute free
 _identity_list = [
@@ -881,6 +884,7 @@ _convert_map = {
     "SoftmaxOutput" : _mx_softmax_output,
     "SoftmaxActivation" : _mx_softmax_activation,
     "smooth_l1"     : _mx_smooth_l1,
+    "SequenceMask"  : _mx_sequence_mask,
     # vision
     "_contrib_BilinearResize2D" : _mx_resize,
     "_contrib_MultiBoxPrior" : _mx_multibox_prior,
