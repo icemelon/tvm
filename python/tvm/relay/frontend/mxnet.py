@@ -667,32 +667,33 @@ def _mx_contrib_div_sqrt_dim(inputs, attrs):
     return out
 
 
-def _mx_foreach_op(inputs, attrs, subgraph, dtype_info, mod):
+def _mx_foreach(inputs, attrs, subgraphs, dtype_info, mod):
     from tvm.relay.prelude import Prelude
+    p = Prelude(mod)
+    nil = p.nil
+    cons = p.cons
+    l = p.l
+    
+    assert len(subgraphs) == 1
     in_data_locs = json.loads(attrs.get_str('in_data_locs'))
     in_state_locs = json.loads(attrs.get_str('in_state_locs'))
     remain_locs = json.loads(attrs.get_str('remain_locs'))
 
     num_data = len(in_data_locs)
     num_states = len(in_state_locs)
-    num_outputs = len(subgraph["heads"]) - num_states
+    num_outputs = len(subgraphs[0]["heads"]) - num_states
 
     data = inputs[:num_data]
     prev_states = inputs[num_data:num_data+num_states]
     params = inputs[num_data+num_states:]
     num_iter = _expr.var("num_iter", dtype='int32', shape=())
     loop_iter = _expr.var("i", dtype='int32', shape=())
-
-    p = Prelude(mod)
-    nil = p.nil
-    cons = p.cons
-    l = p.l
+    all_outs = _expr.var("all_outs")
 
     loop = _expr.GlobalVar("loop")
-    # import pdb; pdb.set_trace()
     body_sb = _scope_builder.ScopeBuilder()
     with body_sb.if_scope(_op.equal(loop_iter, num_iter)):
-        body_sb.ret(_expr.Tuple([nil()] + prev_states))
+        body_sb.ret(_expr.Tuple([all_outs] + prev_states))
     with body_sb.else_scope():
         loop_body_args = [None] * len(inputs)
         for k, v in enumerate(in_data_locs):
@@ -704,7 +705,7 @@ def _mx_foreach_op(inputs, attrs, subgraph, dtype_info, mod):
         for k, v in enumerate(remain_locs):
             assert loop_body_args[v] is None
             loop_body_args[v] = params[k]
-        loop_body = _from_mxnet_impl(mod, subgraph, {}, dtype_info)
+        loop_body = _from_mxnet_impl(mod, subgraphs[0], {}, dtype_info)
         loop_body_ret = _expr.Call(loop_body, loop_body_args)
 
         if num_outputs == 1:
@@ -712,23 +713,24 @@ def _mx_foreach_op(inputs, attrs, subgraph, dtype_info, mod):
         else:
             out = _expr.Tuple([_expr.TupleGetItem(loop_body_ret, i) for i in range(num_outputs)])
         states = [_expr.TupleGetItem(loop_body_ret, num_outputs+i) for i in range(num_states)]
-        recur_ret = _expr.Call(loop, data + states + params + [num_iter, loop_iter + _expr.const(1)])
-        all_outs = cons(out, _expr.TupleGetItem(recur_ret, 0))
-        body_sb.ret(_expr.Tuple([all_outs, _expr.TupleGetItem(recur_ret, 1)]))
+        new_all_outs = cons(out, all_outs)
+        recur_ret = _expr.Call(loop, data + states + params + [num_iter, loop_iter + _expr.const(1), new_all_outs])
+        body_sb.ret(recur_ret)
 
     body = body_sb.get()
-    loop_args = inputs + [num_iter, loop_iter]
-    ret_type = [l(ir_pass.infer_type(out).checked_type)]
-    # ret_type = [l(_ty.IncompleteType())]
-    for state in states:
-        ret_type.append(ir_pass.infer_type(state).checked_type)
-    func = _expr.Function(loop_args, body, ret_type=_ty.TupleType(ret_type))
+    loop_args = inputs + [num_iter, loop_iter, all_outs]
+    func = _expr.Function(loop_args, body)
     mod[loop] = func
 
     data0_shape = _op.shape_of(inputs[0])
     num_iter = _op.take(data0_shape, _expr.const(0))
-    loop_args = inputs + [num_iter, _expr.const(0)]
+    loop_args = inputs + [num_iter, _expr.const(0), nil()]
     ret = _expr.Call(loop, loop_args)
+    # Currently return the all_outs in reverse order because foldl and rev fail
+    # to compile in the vm
+    # all_outs = p.rev(_expr.TupleGetItem(ret, 0))
+    # states = _expr.TupleGetItem(ret, 1)
+    # return _expr.TupleWrapper(_expr.Tuple([all_outs, states]), 2)
     return _expr.TupleWrapper(ret, 2)
 
 
@@ -896,7 +898,7 @@ _convert_map = {
     "_contrib_box_nms" : _mx_box_nms,
     "_contrib_DeformableConvolution" : _mx_deformable_convolution,
     # control flow
-    "_foreach" : _mx_foreach_op,
+    "_foreach"    : _mx_foreach,
     # junru branch op
     "_contrib_div_sqrt_dim": _mx_contrib_div_sqrt_dim,
     "_contrib_sarange"     : _mx_contrib_sarange,
@@ -947,7 +949,12 @@ def _from_mxnet_impl(mod, symbol, shape_dict, dtype_info):
         node_name = node["name"]
         op_name = node["op"]
         if op_name == "null":
-            shape = shape_dict[node_name] if node_name in shape_dict else None
+            if isinstance(shape_dict, dict):
+                shape = shape_dict[node_name] if node_name in shape_dict else None
+            elif isinstance(shape_dict, list):
+                shape = shape_dict.pop(0)
+            else:
+                raise ValueError("Unknown type of shape_dict: %s" + type(shape_dict))
             if isinstance(dtype_info, dict):
                 dtype = dtype_info[node_name] if node_name in dtype_info else "float32"
             else:
@@ -955,10 +962,9 @@ def _from_mxnet_impl(mod, symbol, shape_dict, dtype_info):
             node_map[nid] = [_expr.var(node_name, shape=shape, dtype=dtype)]
         elif op_name in _convert_map:
 #            print("processing node {}".format(node))
-            if op_name == '_foreach':
-                # parse subgraph
-                subgraph = node['subgraphs'][0]
-                res = _convert_map[op_name](children, attrs, subgraph, dtype_info, mod)
+            if op_name in ['_foreach', '_while_loop']:
+                subgraphs = node['subgraphs']
+                res = _convert_map[op_name](children, attrs, subgraphs, dtype_info, mod)
             else:
                 res = _convert_map[op_name](children, attrs)            
             if isinstance(res, (_expr.TupleWrapper, tuple, list)):

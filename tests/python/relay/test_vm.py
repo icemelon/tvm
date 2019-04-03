@@ -306,7 +306,7 @@ def test_while():
         def hybrid_forward(self, F, data):
             def sum(state, i):
                 s = state + F.take(data, i)
-                return [], [s, i + 1]
+                return [s], [s, i + 1]
             def sum_cond(state, i):
                 return i < 4
             out, state = F.contrib.while_loop(sum_cond, sum,
@@ -317,8 +317,10 @@ def test_while():
     scan_layer = Scan()
     scan_layer.hybridize()
     out, state = scan_layer(data)
+    print(out)
+    print(state)
     mx_sym = scan_layer._cached_graph[1]
-    #print(mx_sym.tojson())
+    # print(mx_sym.tojson())
     # Fail at this line
     sym, _ = relay.frontend.from_mxnet(mx_sym, shape={'data': (5,)})
 

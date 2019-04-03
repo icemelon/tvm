@@ -18,7 +18,7 @@ def optimize(expr, mod=None):
     simplified_expr = ir_pass.infer_type(simplified_expr, mod=mod)
     fused_expr = ir_pass.fuse_ops(simplified_expr, mod=mod)
     ck_fused = ir_pass.infer_type(fused_expr, mod=mod)
-    return ck_simp
+    return ck_fused
 
 def eta_expand(expr, mod):
     """eta expansion
