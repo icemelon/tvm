@@ -690,7 +690,7 @@ def _mx_foreach(inputs, attrs, subgraphs, dtype_info, mod):
     loop_iter = _expr.var("i", dtype='int32', shape=())
     all_outs = _expr.var("all_outs")
 
-    loop = _expr.GlobalVar("loop")
+    loop = _expr.GlobalVar("foreach")
     body_sb = _scope_builder.ScopeBuilder()
     with body_sb.if_scope(_op.equal(loop_iter, num_iter)):
         body_sb.ret(_expr.Tuple([all_outs] + prev_states))
@@ -705,7 +705,9 @@ def _mx_foreach(inputs, attrs, subgraphs, dtype_info, mod):
         for k, v in enumerate(remain_locs):
             assert loop_body_args[v] is None
             loop_body_args[v] = params[k]
-        loop_body = _from_mxnet_impl(mod, subgraphs[0], {}, dtype_info)
+        loop_body_arg_shapes = [ir_pass.infer_type(arg).checked_type.shape 
+                                for arg in loop_body_args]
+        loop_body = _from_mxnet_impl(mod, subgraphs[0], loop_body_arg_shapes, dtype_info)
         loop_body_ret = _expr.Call(loop_body, loop_body_args)
 
         if num_outputs == 1:
@@ -731,7 +733,66 @@ def _mx_foreach(inputs, attrs, subgraphs, dtype_info, mod):
     # all_outs = p.rev(_expr.TupleGetItem(ret, 0))
     # states = _expr.TupleGetItem(ret, 1)
     # return _expr.TupleWrapper(_expr.Tuple([all_outs, states]), 2)
-    return _expr.TupleWrapper(ret, 2)
+    return _expr.TupleWrapper(ret, num_states+1)
+
+
+def _mx_while_loop(inputs, attrs, subgraphs, dtype_info, mod):
+    from tvm.relay.prelude import Prelude
+    p = Prelude(mod)
+    nil = p.nil
+    cons = p.cons
+    l = p.l
+    
+    assert len(subgraphs) == 2
+    input_args = []
+    for i, arg in enumerate(inputs):
+        var = _expr.var("arg%s" % i, ir_pass.infer_type(arg).checked_type)
+        input_args.append(var)
+    
+    cond_input_locs = attrs.get_int_tuple("cond_input_locs")
+    func_input_locs = attrs.get_int_tuple("func_input_locs")
+    # indices of state vars in the func_input_locs
+    func_var_locs = attrs.get_int_tuple("func_var_locs")
+    num_out_data = attrs.get_int("num_out_data")
+    num_outputs = attrs.get_int("num_outputs")
+    
+    all_outs = _expr.var("all_outs")
+    while_loop = _expr.GlobalVar("while_loop")
+    prev_states = [input_args[func_input_locs[j]] for j in func_var_locs]
+
+    cond_args = [input_args[j] for j in cond_input_locs]
+    cond_arg_shapes = [arg.type_annotation.shape for arg in cond_args]
+    cond_body = _from_mxnet_impl(mod, subgraphs[0], cond_arg_shapes, dtype_info)
+    cond_ret = _expr.Call(cond_body, cond_args)
+    cond = _op.take(cond_ret, _expr.const(0)).astype("bool")
+    
+    sb = _scope_builder.ScopeBuilder()
+    with sb.if_scope(cond):
+        func_args = [input_args[j] for j in func_input_locs]
+        func_arg_shapes = [arg.type_annotation.shape for arg in func_args]
+        func = _from_mxnet_impl(mod, subgraphs[1], func_arg_shapes, dtype_info)
+        func_ret = _expr.Call(func, func_args)
+        if num_out_data == 1:
+            out = _expr.TupleGetItem(func_ret, 0)
+        else:
+            out = _expr.Tuple([_expr.TupleGetItem(func_ret, j) for j in range(num_out_data)])
+        new_all_outs = cons(out, all_outs)
+        states = [_expr.TupleGetItem(func_ret, j) for j in range(num_out_data, num_outputs)]
+        recur_args = input_args[:]
+        for i, func_idx in enumerate(func_var_locs):
+            recur_args[func_input_locs[func_idx]] = states[i]
+        recur_ret = _expr.Call(while_loop, recur_args + [new_all_outs])
+        sb.ret(recur_ret)
+    with sb.else_scope():
+        sb.ret(_expr.Tuple([all_outs] + prev_states))
+    
+    body = sb.get()
+    while_args = input_args + [all_outs]
+    # print(while_args)
+    func = _expr.Function(while_args, body)
+    mod[while_loop] = func
+    ret = _expr.Call(while_loop, inputs + [nil()])
+    return _expr.TupleWrapper(ret, num_outputs)
 
 
 def _mx_layer_norm(inputs, attrs):
@@ -899,6 +960,7 @@ _convert_map = {
     "_contrib_DeformableConvolution" : _mx_deformable_convolution,
     # control flow
     "_foreach"    : _mx_foreach,
+    "_while_loop" : _mx_while_loop,
     # junru branch op
     "_contrib_div_sqrt_dim": _mx_contrib_div_sqrt_dim,
     "_contrib_sarange"     : _mx_contrib_sarange,

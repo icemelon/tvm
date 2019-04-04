@@ -6,7 +6,7 @@ from mxnet import gluon
 import tvm
 import numpy as np
 from tvm import relay
-from tvm.relay.vm import eta_expand
+from tvm.relay.vm import _eval_vm, eta_expand
 from tvm.relay.scope_builder import ScopeBuilder
 from tvm.relay.prelude import Prelude
 
@@ -274,7 +274,7 @@ def test_rnn(cell_type):
 
     loop = None
     for v, func in mod.functions.items():
-        if v.name_hint == 'loop':
+        if v.name_hint == 'foreach':
             loop = v
             print(relay.ir_pass.infer_type(func, mod=mod))
             # print("func params: {}".format(func.params))
@@ -302,27 +302,51 @@ def test_rnn(cell_type):
         print("MXNet output : {}".format(o.asnumpy()))
 
 def test_while():
+    n = 5
     class Scan(gluon.HybridBlock):
         def hybrid_forward(self, F, data):
             def sum(state, i):
                 s = state + F.take(data, i)
                 return [s], [s, i + 1]
             def sum_cond(state, i):
-                return i < 4
+                return i < n
             out, state = F.contrib.while_loop(sum_cond, sum,
                                               [F.zeros((1)), F.zeros((1))], max_iterations=5)
             return out, state
 
-    data = mx.nd.arange(5)
+    data = mx.nd.arange(n)
     scan_layer = Scan()
     scan_layer.hybridize()
-    out, state = scan_layer(data)
-    print(out)
-    print(state)
+    scan_layer(data)
     mx_sym = scan_layer._cached_graph[1]
-    # print(mx_sym.tojson())
-    # Fail at this line
-    sym, _ = relay.frontend.from_mxnet(mx_sym, shape={'data': (5,)})
+    mod = relay.module.Module()
+    sym, _ = relay.frontend.from_mxnet(mx_sym, shape={'data': (5,)}, module=mod)
+    print(sym)
+
+    for v, func in mod.functions.items():
+        if v.name_hint == 'while_loop':
+            print(relay.ir_pass.infer_type(func, mod=mod))
+
+    inputs = [relay.var('data')]
+    mod[mod.entry_func] = relay.Function(inputs, relay.Call(sym, inputs))
+    print(relay.ir_pass.infer_type(mod[mod.entry_func], mod=mod))
+
+    data_np = np.arange(n).astype('float32')
+
+    print('eval interpreter')
+    intrp = relay.create_executor("debug", mod=mod, ctx=tvm.cpu(), target="llvm")
+    op_res = intrp.evaluate(mod.entry_func)(data_np)
+    print("Interpreter result is {}".format(op_res))
+
+    print('eval vm')
+    result = _eval_vm(mod, tvm.cpu(), data_np)
+    print("Relay result is {}".format(result))
+
+    mx_inputs = [mx.nd.array(data_np)]
+    mx_outputs = scan_layer(*mx_inputs)
+    print("======== MXNet result ==========")
+    for o in mx_outputs:
+        print("MXNet output : {}".format(o))
 
 
 def test_closure():
@@ -349,4 +373,5 @@ if __name__ == "__main__":
     # test_let_tensor()
     # test_list_constructor()
     # test_closure()
-    test_rnn('rnn')
+    # test_rnn('lstm')
+    test_while()
