@@ -53,12 +53,30 @@ def test_dyn_concat():
 
     def _body(i, st):
         i = relay.op.reshape(i.astype('float32'), (1,))
-        return relay.op.concatenate([st, i], axis=0)
+        ret = relay.op.concatenate([st, i], axis=0)
+        # print(relay.ir_pass.infer_type(ret))
+        return ret
 
-    res = foreach(iter, init, _body)
-    tres = relay.ir_pass.infer_type(res)
-    print("type check")
-    print(tres)
+    i = relay.var("i", shape=(), dtype='int32')
+    st = relay.var("st", type_annotation=relay.TypeOf(init))
+    update = _body(i, st)
+    dim = relay.take(relay.op.shape_of(iter), indices=i, axis=0)
+    def _cond(i, st):
+        return relay.op.min(relay.op.less(i, dim))
+
+    mod = relay.module.Module()
+    wl = relay.GlobalVar("while_loop")
+    loop_vars = [i, st]
+    sb = relay.ScopeBuilder()
+    with sb.if_scope(_cond(*loop_vars)):
+        sb.ret(wl(i + int32(1), update))
+    with sb.else_scope():
+        sb.ret(relay.Tuple(loop_vars))
+    func = relay.Function(loop_vars, sb.get())
+    print(func)
+    # fail at this line
+    mod[wl] = func
+    # print(relay.ir_pass.infer_type(func, mod=mod))
 
     # ex = relay.create_executor()
     # result = ex.evaluate(res)
