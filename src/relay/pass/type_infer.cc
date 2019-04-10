@@ -138,7 +138,7 @@ class TypeInferencer : private ExprFunctor<Type(const Expr&)>,
 
   // Perform unification on two types and report the error at the expression
   // or the span of the expression.
-  Type Unify(const Type& t1, const Type& t2, const NodeRef& expr) {
+  Type Unify(const Type& t1, const Type& t2, const NodeRef& expr, bool arg_type=false) {
     // TODO(tqchen, jroesch): propagate span to solver
     try {
       // instantiate higher-order func types when unifying because
@@ -489,7 +489,7 @@ class TypeInferencer : private ExprFunctor<Type(const Expr&)>,
     }
 
     for (size_t i = 0; i < fn_ty->arg_types.size(); i++) {
-      this->Unify(fn_ty->arg_types[i], arg_types[i], call->args[i]);
+      this->Unify(fn_ty->arg_types[i], arg_types[i], call->args[i], true);
     }
 
     for (auto cs : fn_ty->type_constraints) {

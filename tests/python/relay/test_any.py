@@ -73,13 +73,15 @@ def test_dyn_concat():
     with sb.else_scope():
         sb.ret(relay.Tuple(loop_vars))
     func = relay.Function(loop_vars, sb.get())
-    print(func)
-    # fail at this line
     mod[wl] = func
-    # print(relay.ir_pass.infer_type(func, mod=mod))
+    print(relay.ir_pass.infer_type(func, mod=mod))
+    ret = relay.Call(wl, [relay.const(0, 'int32'), init])
+    mod[mod.entry_func] = relay.Function([], ret)
+    print(relay.ir_pass.infer_type(mod[mod.entry_func], mod=mod))
 
-    # ex = relay.create_executor()
-    # result = ex.evaluate(res)
+    ex = relay.create_executor("debug", mod=mod, ctx=tvm.cpu(), target="llvm")
+    result = ex.evaluate(mod.entry_func)()
+    print(result)
     # import pdb; pdb.set_trace()
     # np.testing.assert_allclose(result.asnumpy(), np.array(range(10)))
 
