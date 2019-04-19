@@ -455,11 +455,12 @@ def _mx_arange(inputs, attrs):
 
 
 def _mx_contrib_sarange(inputs, attrs):
+    dtype = "float32"
     data = ir_pass.infer_type(inputs[0])
     data = ir_pass.fold_constant(data)
     assert isinstance(data, _expr.Constant)
-    stop = data.data.asnumpy()[0]
-    return _op.arange(stop)
+    stop = data.data.asnumpy()[0].astype(dtype)
+    return _op.arange(_op.const(stop, dtype), dtype=dtype)
 
 
 def _mx_repeat(inputs, attrs):
@@ -807,7 +808,7 @@ def _mx_while_loop(inputs, attrs, subgraphs, dtype_info, mod):
 def _mx_layer_norm(inputs, attrs):
     assert len(inputs) == 3
     if attrs.get_bool("output_mean_var", False):
-        raise RuntimeError("batch_norm do not support output_mean_var")
+        raise RuntimeError("layer_norm does not support output_mean_var")
     new_attrs = {}
     new_attrs["axis"] = attrs.get_int("axis", -1)
     new_attrs["epsilon"] = attrs.get_float("eps", 1e-5)

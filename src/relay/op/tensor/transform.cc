@@ -1067,9 +1067,9 @@ bool ArangeRel(const Array<Type>& types,
   const ArangeAttrs* param = attrs.as<ArangeAttrs>();
   const ConstantNode *cstart, *cstop, *cstep;
 
-  reporter->Assign(types[0], TensorTypeNode::make({}, Int(32)));
-  reporter->Assign(types[1], TensorTypeNode::make({}, Int(32)));
-  reporter->Assign(types[2], TensorTypeNode::make({}, Int(32)));
+  // reporter->Assign(types[0], TensorTypeNode::make({}, Int(32)));
+  // reporter->Assign(types[1], TensorTypeNode::make({}, Int(32)));
+  // reporter->Assign(types[2], TensorTypeNode::make({}, Int(32)));
 
   if ((cstart = param->start.as<ConstantNode>()) &&
       (cstop = param->stop.as<ConstantNode>()) &&

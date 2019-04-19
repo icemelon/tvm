@@ -271,7 +271,7 @@ def full_like(data, fill_value):
     return _make.full_like(data, fill_value)
 
 
-def arange(start, stop=None, step=const(1, dtype="int32"), dtype="float32"):
+def arange(start, stop=None, step=None, dtype="float32"):
     """Return evenly spaced values within a given interval.
 
     .. note::
@@ -283,14 +283,14 @@ def arange(start, stop=None, step=const(1, dtype="int32"), dtype="float32"):
 
     Parameters
     ----------
-    start : tvm.Expr, optional
+    start : relay.Expr, optional
         Start of interval. The interval includes this value. The default start
         value is 0.
 
-    stop : tvm.Expr
+    stop : relay.Expr
         Stop of interval. The interval does not include this value.
 
-    step : tvm.Expr, optional
+    step : relay.Expr, optional
         Spacing between values. The default step size is 1.
 
     dtype : str, optional
@@ -311,7 +311,9 @@ def arange(start, stop=None, step=const(1, dtype="int32"), dtype="float32"):
     """
     if stop is None:
         stop = start
-        start = const(0, dtype='int32')
+        start = const(0, dtype=dtype)
+    if step is None:
+        step = const(1, dtype=dtype)
     return _make.arange(start, stop, step, dtype)
 
 
