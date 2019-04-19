@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- * 
+ *
  *   http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -124,10 +124,10 @@ TVM_REGISTER_GLOBAL("tvm.contrib.sort.argsort")
   DLTensor *output = args[1];
   int32_t axis = args[2];
   bool is_ascend = args[3];
+  auto dtype = output->dtype;
 
-  auto dtype = input->dtype;
   auto data_ptr = static_cast<float *>(input->data);
-  std::vector<std::pair<float, float>> sorter;
+  std::vector<std::pair<int64_t, float>> sorter;
   int64_t axis_mul_before = 1;
   int64_t axis_mul_after = 1;
 
@@ -135,11 +135,9 @@ TVM_REGISTER_GLOBAL("tvm.contrib.sort.argsort")
     axis = input->ndim + axis;
   }
 
-  // Currently only supports input dtype to be float32.
-  CHECK_EQ(dtype.code, 2) << "Currently only supports input dtype "
-      "to be float32.";
-  CHECK_EQ(dtype.bits, 32) << "Currently only supports input dtype "
-      "to be float32.";
+  CHECK(dtype.bits == 32 || dtype.bits == 64)
+      << "Currently only supports output dtype to be "
+      << "[u]int32/[u]int64/float32/float64";
   CHECK_LT(axis, input->ndim) << "Axis out of boundary for "
       "input ndim " << input->ndim;
 
@@ -166,8 +164,23 @@ TVM_REGISTER_GLOBAL("tvm.contrib.sort.argsort")
         std::stable_sort(sorter.begin(), sorter.end(), CompareDescend<float>);
       }
       for (int32_t k = 0; k < input->shape[axis]; ++k) {
-        *(static_cast<float *>(output->data) + base_idx + k * axis_mul_after)
-            = k < static_cast<float>(sorter.size()) ? sorter[k].first : k;
+        if (dtype.code == kDLInt || dtype.code == kDLUInt) {
+          if (dtype.bits == 32) {
+            *(static_cast<int32_t *>(output->data) + base_idx + k * axis_mul_after)
+                = k < static_cast<int32_t>(sorter.size()) ? sorter[k].first : k;
+          } else {
+           *(static_cast<int64_t *>(output->data) + base_idx + k * axis_mul_after)
+                = k < static_cast<int64_t>(sorter.size()) ? sorter[k].first : k;
+          }
+        } else {
+          if (dtype.bits == 32) {
+            *(static_cast<float *>(output->data) + base_idx + k * axis_mul_after)
+                = k < static_cast<float>(sorter.size()) ? sorter[k].first : k;
+          } else {
+           *(static_cast<double *>(output->data) + base_idx + k * axis_mul_after)
+                = k < static_cast<double>(sorter.size()) ? sorter[k].first : k;
+          }
+        }
       }
     }
   }
