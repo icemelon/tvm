@@ -819,6 +819,43 @@ def _mx_sequence_mask(inputs, attrs):
     return inputs[0]
 
 
+def _mx_topk(inputs, attrs):
+    assert len(inputs) == 1
+    axis = attrs.get_int("axis", -1)
+    ret_type = attrs.get_str("ret_typ", "indices")
+    k = attrs.get_int("k", 1)
+    is_ascend = attrs.get_bool("is_ascend", False)
+    dtype = attrs.get_str("dtype", "float32")
+
+    if ret_type == "mask":
+        raise RuntimeError("topk does not support ret_typ as mask")
+
+    argsort_attrs = {}
+    argsort_attrs["axis"] = axis
+    argsort_attrs["is_ascend"] = is_ascend
+    argsort_attrs["dtype"] = dtype if ret_type == "indices" else "int32"
+
+    indices = _op.vision.argsort(inputs[0], **argsort_attrs)
+    if k >= 1:
+        in_shape = ir_pass.infer_type(inputs[0]).checked_type.shape
+        begin = [0] * len(in_shape)
+        end = []
+        for dim in in_shape:
+            end.append(int(dim))
+        end[axis] = k
+        indices = _op.strided_slice(indices, begin, end)
+    if ret_type == "indices":
+        return indices
+    # return indices
+    # print(ir_pass.infer_type(indices))
+    # print(axis)
+    # values = _op.take(inputs[0], indices, axis=axis)
+    # if ret_type == "value":
+    #     return values
+    # ret_type == "both"
+    return _expr.TupleWrapper(_expr.Tuple([indices.astype(dtype), indices.astype(dtype)]), 2)
+
+
 # Note: due to attribute conversion constraint
 # ops in the identity set must be attribute free
 _identity_list = [
@@ -960,6 +997,7 @@ _convert_map = {
     "SoftmaxActivation" : _mx_softmax_activation,
     "smooth_l1"     : _mx_smooth_l1,
     "SequenceMask"  : _mx_sequence_mask,
+    "topk"          : _mx_topk,
     # vision
     "_contrib_BilinearResize2D" : _mx_resize,
     "_contrib_MultiBoxPrior" : _mx_multibox_prior,

@@ -23,7 +23,7 @@ def test_embedding():
     out_mx = mx.nd.Embedding(data, weight, input_dim=4, output_dim=5)
     print(out_mx.shape)
     print(out_mx.asnumpy())
-    
+
     data = mx.sym.Variable(name="data")
     weight = mx.sym.Variable(name="weight")
     z = mx.sym.Embedding(data, weight, input_dim=4, output_dim=5)
@@ -57,7 +57,7 @@ def test_var():
 
     x_data = np.random.uniform(size=shape).astype('float32')
     ref_res = np.var(x_data)
-    
+
     ctx = tvm.cpu()
     target = 'llvm'
     intrp = relay.create_executor("graph", ctx=ctx, target=target)
@@ -78,7 +78,7 @@ def test_layer_norm():
     out_mx = mx.nd.LayerNorm(data, gamma, beta)
     # print(out_mx.shape)
     # print(out_mx.asnumpy())
-    
+
     data = mx.sym.Variable(name="data")
     gamma = mx.sym.Variable(name="gamma")
     beta = mx.sym.Variable(name="beta")
@@ -98,9 +98,40 @@ def test_layer_norm():
     # print(out_tvm.asnumpy())
     tvm.testing.assert_allclose(out_tvm.asnumpy(), out_mx.asnumpy(), rtol=1e-3)
 
+def test_topk():
+    def verify(x_data, k=None, axis=None, ret_type=None, is_ascend=None):
+        attrs = {}
+        if k is not None:
+            attrs["k"] = k
+        if axis is not None:
+            attrs["axis"] = axis
+        if ret_type is not None:
+            attrs["ret_typ"] = ret_type
+        if is_ascend is not None:
+            attrs["is_ascend"] = is_ascend
+        ref_res = mx.nd.topk(mx.nd.array(x_data), **attrs)
+        print(ref_res)
+        mx_sym = mx.sym.topk(mx.sym.var(name="x"), **attrs)
+        new_sym, _ = relay.frontend.from_mxnet(mx_sym, {"x": x_data.shape})
+        print(relay.ir_pass.infer_type(new_sym))
+        intrp = relay.create_executor()
+        op_res = intrp.evaluate(new_sym)(x_data)
+        print(op_res.asnumpy())
+        tvm.testing.assert_allclose(op_res.asnumpy(), ref_res.asnumpy())
+
+    x_np = np.asarray([[ 0.3,  0.2,  0.4], [ 0.1,  0.3,  0.2]]).astype("float32")
+    print(x_np)
+    # verify(x_np)
+    verify(x_np, ret_type="value", k=2)
+    # verify(x_np, ret_type="value", k=2, is_ascend=1)
+    # verify(x_np, axis=0, ret_type='value', k=2)
+    # verify(x_np, ret_type='both', k=2)
+
+
 if __name__ == '__main__':
-    test_slice_axis()
-    test_embedding()
-    test_div_sqrt_dim()
-    test_var()
-    test_layer_norm()
+    # test_slice_axis()
+    # test_embedding()
+    # test_div_sqrt_dim()
+    # test_var()
+    # test_layer_norm()
+    test_topk()
