@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- * 
+ *
  *   http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -87,6 +87,16 @@ Type ConcreteBroadcast(const TensorType& t1,
     } else if (EqualConstInt(s1, 1)) {
       oshape.push_back(s2);
     } else if (EqualConstInt(s2, 1)) {
+      oshape.push_back(s1);
+    } else if (s1.same_as(Any())) {
+      LOG(WARNING) << "Assert any == 1 || any == " << s2 << " in broadcast of "
+                   << t1 << " and " << t2;
+      // TODO: Assert Any!!! s1 == 1 || s1 == s2
+      oshape.push_back(s2);
+    } else if (s2.same_as(Any())) {
+      LOG(WARNING) << "Assert any == 1 || any == " << s1 << " in broadcast of "
+                   << t1 << " and " << t2;
+      // TODO: Assert Any!!! s2 == 1 || s2 == s1
       oshape.push_back(s1);
     } else {
       RELAY_ERROR(
