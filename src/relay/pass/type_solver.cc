@@ -34,6 +34,9 @@ bool HasAny(const Type& ty) {
   if (ty.as<IncompleteTypeNode>()) {
     return false;
   }
+  if (ty.as<TypeVarNode>() || ty.as<TypeCallNode>()) {
+    return false;
+  }
   if (auto tty = ty.as<TensorTypeNode>()) {
     for (auto dim : tty->shape) {
       if (dim.same_as(Any())) {
@@ -55,6 +58,10 @@ bool HasAny(const Type& ty) {
 bool LiftedAny(const Type& dst, const Type& src) {
   if (src.as<IncompleteTypeNode>()) {
     return HasAny(dst);
+  }
+  if (src.as<TypeVarNode>() || dst.as<TypeVarNode>() ||
+      src.as<TypeCallNode>() || dst.as<TypeCallNode>()) {
+    return false;
   }
   if (auto src_ty = src.as<TensorTypeNode>()) {
     auto dst_ty = dst.as<TensorTypeNode>();
@@ -203,8 +210,13 @@ class TypeSolver::Unifier : public TypeFunctor<Type(const Type&, const Type&)> {
         << rhs->resolved_type << ", cannot unify";
       lhs->resolved_type = rhs->resolved_type;
       return lhs->resolved_type;
+    } else if (rhs->resolved_type.as<IncompleteTypeNode>()) {
+      CHECK(!CheckOccurs(rhs, lhs->resolved_type))
+        << "Incomplete type " << rhs->resolved_type << " occurs in "
+        << lhs->resolved_type << ", cannot unify";
+      rhs->resolved_type = lhs->resolved_type;
+      return rhs->resolved_type;
     } else {
-      CHECK(!rhs->resolved_type.as<IncompleteTypeNode>());
       Type resolved = this->VisitType(lhs->resolved_type, rhs->resolved_type);
       CHECK(resolved.defined())
         << "Unable to unify parent types: "
