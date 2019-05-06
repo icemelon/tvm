@@ -182,5 +182,5 @@ def get_symbol(num_classes=1000, **kwargs):
     pool = mx.sym.Pooling(data=in5b, kernel=(8, 8), stride=(1, 1), pool_type="avg", name="global_pool")
     flatten = mx.sym.Flatten(data=pool, name="flatten")
     fc1 = mx.sym.FullyConnected(data=flatten, num_hidden=num_classes, name='fc1', flatten=False)
-    softmax = mx.sym.SoftmaxOutput(data=fc1, name='softmax')
+    softmax = mx.sym.softmax(data=fc1, name='softmax')
     return softmax

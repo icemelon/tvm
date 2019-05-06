@@ -20,7 +20,9 @@ from __future__ import absolute_import as _abs
 
 from .. import expr as _expr
 from .. import op as _op
+from .. import ir_pass as _ir_pass
 from .common import get_relay_op
+
 
 def _warn_not_used(attr, op='nnvm'):
     import warnings
@@ -28,7 +30,7 @@ def _warn_not_used(attr, op='nnvm'):
     warnings.warn(err)
 
 
-def _rename(new_op):
+def _rename(new_op, mod=None):
     if isinstance(new_op, str):
         new_op = get_relay_op(new_op)
     # attrs are ignored.
@@ -37,7 +39,7 @@ def _rename(new_op):
     return impl
 
 
-def _reshape(inputs, attrs):
+def _reshape(inputs, attrs, mod=None):
     shape = attrs.get_int_tuple("shape")
     reverse = attrs.get_bool("reverse", False)
     if reverse:
@@ -47,7 +49,7 @@ def _reshape(inputs, attrs):
 
 def _init_op(new_op):
     """Init ops like zeros/ones"""
-    def _impl(inputs, attrs):
+    def _impl(inputs, attrs, mod=None):
         assert len(inputs) == 0
         shape = attrs.get_int_tuple("shape")
         dtype = attrs.get_str("dtype", "float32")
@@ -122,9 +124,10 @@ def _elemwise_sum(inputs, _, _dtype='float32'):
     return res
 
 
-def _binop_scalar(new_op):
+def _binop_scalar(new_op, mod=None):
     def _impl(inputs, attrs, odtype='float32'):
         assert len(inputs) == 1
+        odtype = _ir_pass.infer_type(inputs[0], mod=mod).checked_type.dtype
         scalar = attrs.get_float("scalar")
         # Note: binary scalar only works for float op for now
         scalar = _expr.const(scalar, dtype=odtype)

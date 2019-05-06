@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=invalid-name, import-self, len-as-condition
+# pylint: disable=invalid-name, import-self, len-as-condition, unused-argument
 """MXNet symbol frontend."""
 from __future__ import absolute_import as _abs
 
@@ -25,6 +25,7 @@ from .. import expr as _expr
 from .. import op as _op
 from .. import ty as _ty
 from .. import scope_builder as _scope_builder
+from .. import module as _module
 from ... import nd as _nd
 
 from .common import StrAttrsDict
@@ -36,7 +37,7 @@ from .nnvm_common import _warn_not_used
 
 __all__ = ['from_mxnet']
 
-def _mx_fully_connected(inputs, attrs):
+def _mx_fully_connected(inputs, attrs, mod):
     import mxnet as mx
     units = attrs.get_int("num_hidden")
     use_bias = not attrs.get_bool("no_bias", False)
@@ -65,7 +66,7 @@ def _get_channel_axis(layout, op_name):
         'Value {} in attribute "layout" of operator {} is not valid.'.format(layout, op_name))
 
 
-def _mx_activations(inputs, attrs):
+def _mx_activations(inputs, attrs, mod):
     act_type = attrs.get_str("act_type")
     assert len(inputs) == 1
     if act_type == "sigmoid":
@@ -87,13 +88,13 @@ def _mx_activations(inputs, attrs):
 
 
 def _mx_compare(new_op, wrapper):
-    def impl(inputs, attrs):
-        dtype = ir_pass.infer_type(inputs[0]).checked_type.dtype
-        return wrapper(new_op)(inputs, attrs).astype(dtype)
+    def impl(inputs, attrs, mod):
+        dtype = ir_pass.infer_type(inputs[0], mod=mod).checked_type.dtype
+        return wrapper(new_op, mod)(inputs, attrs).astype(dtype)
     return impl
 
 
-def _mx_conv2d(inputs, attrs):
+def _mx_conv2d(inputs, attrs, mod):
     kernel_size = attrs.get_int_tuple("kernel")
     if len(kernel_size) != 2:
         raise tvm.error.OpAttributeInvalid(
@@ -123,7 +124,7 @@ def _mx_conv2d(inputs, attrs):
     return res
 
 
-def _mx_conv2d_transpose(inputs, attrs):
+def _mx_conv2d_transpose(inputs, attrs, mod):
     if "target_shape" in attrs.attrs:
         raise tvm.error.OpAttributeUnimplemented(
             'Attribute "target_shape" is not supported for operator Conv2D-transpose.')
@@ -158,7 +159,7 @@ def _mx_conv2d_transpose(inputs, attrs):
     return res
 
 
-def _mx_pooling(inputs, attrs):
+def _mx_pooling(inputs, attrs, mod):
     global_pool = attrs.get_bool("global_pool", False)
     pool_type = attrs.get_str("pool_type")
 
@@ -188,23 +189,23 @@ def _mx_pooling(inputs, attrs):
         'Operator {} Pooling is not supported for frontend MXNet.'.format(pool_type.capitalize()))
 
 
-def _mx_adaptive_pooling(inputs, attrs):
+def _mx_adaptive_pooling(inputs, attrs, mod):
     output_size = attrs.get_int_tuple("output_size", [])
     if output_size != (1,):
         raise RuntimeError("AdaptiveAvgPooling with output_size other than 1 is not supported yet.")
     return _op.nn.global_avg_pool2d(inputs[0])
 
 
-def _mx_dropout(inputs, attrs):
+def _mx_dropout(inputs, attrs, mod):
     rate = attrs.get_float("p", 0.5)
     return _op.nn.dropout(inputs[0], rate=rate)
 
 
-def _mx_BlockGrad(inputs, attrs): #pylint: disable=unused-argument
+def _mx_BlockGrad(inputs, attrs, mod): #pylint: disable=
     return inputs
 
 
-def _mx_batch_norm(inputs, attrs):
+def _mx_batch_norm(inputs, attrs, mod):
     if attrs.get_bool("output_mean_var", False):
         raise tvm.error.OpAttributeUnimplemented(
             'Attribute "output_mean_var" is not supported for operator Batch Norm.')
@@ -218,7 +219,7 @@ def _mx_batch_norm(inputs, attrs):
     return _op.nn.batch_norm(*inputs, **new_attrs)
 
 
-def _mx_slice(inputs, attrs):
+def _mx_slice(inputs, attrs, mod):
     new_attrs = {}
     begin = attrs.get_int_tuple('begin', None)
     end = attrs.get_int_tuple('end', None)
@@ -241,14 +242,14 @@ def _mx_slice(inputs, attrs):
     return _op.strided_slice(inputs[0], **new_attrs)
 
 
-def _mx_slice_like(inputs, attrs):
+def _mx_slice_like(inputs, attrs, mod):
     assert len(inputs) == 2
     new_attrs = {}
     new_attrs["axes"] = attrs.get_int_tuple("axes", None)
     return _op.slice_like(*inputs, **new_attrs)
 
 
-def _mx_slice_axis(inputs, attrs):
+def _mx_slice_axis(inputs, attrs, mod):
     assert len(inputs) == 1
     shape = ir_pass.infer_type(inputs[0]).checked_type.shape
     axis = attrs.get_int("axis")
@@ -279,7 +280,7 @@ def _mx_slice_axis(inputs, attrs):
     return _op.strided_slice(inputs[0], begin, end)
 
 
-def _mx_split(inputs, attrs):
+def _mx_split(inputs, attrs, mod):
     axis = attrs.get_int("axis", 1)
     new_attrs = {}
     new_attrs["indices_or_sections"] = attrs.get_int("num_outputs")
@@ -290,34 +291,34 @@ def _mx_split(inputs, attrs):
     return res
 
 
-def _mx_softmax_activation(inputs, attrs):
+def _mx_softmax_activation(inputs, attrs, mod):
     mode = attrs.get_str("mode", "instance")
     axis = 0 if mode == "instance" else 1
     return _op.nn.softmax(inputs[0], axis=axis)
 
 
-def _mx_softmax_output(inputs, attrs):
+def _mx_softmax_output(inputs, attrs, mod):
     if attrs.get_bool("multi_output", False):
         return _op.nn.softmax(inputs[0], axis=1)
     return _op.nn.softmax(inputs[0])
 
 
-def _mx_concat(inputs, attrs):
+def _mx_concat(inputs, attrs, mod):
     axis = attrs.get_int("dim", 1)
     return _op.concatenate(tuple(inputs), axis=axis)
 
 
-def _mx_stack(inputs, attrs):
+def _mx_stack(inputs, attrs, mod):
     axis = attrs.get_int("axis", 0)
     return _op.stack(tuple(inputs), axis=axis)
 
 
-def _mx_expand_dims(inputs, attrs):
+def _mx_expand_dims(inputs, attrs, mod):
     axis = attrs.get_int("axis")
     return _op.expand_dims(inputs[0], axis=axis)
 
 
-def _mx_leaky_relu(inputs, attrs):
+def _mx_leaky_relu(inputs, attrs, mod):
     act_type = attrs.get_str("act_type")
     if act_type == "leaky":
         return _op.nn.leaky_relu(inputs[0], alpha=attrs.get_float("slope", 0.25))
@@ -343,7 +344,7 @@ def _mx_leaky_relu(inputs, attrs):
 
 
 def _mx_make_power(power):
-    def _impl(inputs, _):  # Note: no attrs
+    def _impl(inputs, attrs, mod):  # Note: no attrs
         assert len(inputs) == 1
         scalar = _expr.const(power, dtype=None)
         # Note: int maps to "int32", float maps to "float32"
@@ -353,7 +354,7 @@ def _mx_make_power(power):
 
 def _mx_make_exponent(base):
     # exp(b, x) = e^b * e^x
-    def _impl(inputs, _):  # Note: no attrs
+    def _impl(inputs, attrs, mod):  # Note: no attrs
         assert len(inputs) == 1
         scalar = _op.exp(_expr.const(base, dtype="float32"))
         return _op.multiply(inputs[0], scalar)
@@ -362,7 +363,7 @@ def _mx_make_exponent(base):
 
 def _mx_make_logarithm(base):
     # log(b, x) = log(x) / log(b)
-    def _impl(inputs, _):  # Note: no attrs
+    def _impl(inputs, attrs, mod):  # Note: no attrs
         assert len(inputs) == 1
         scalar = _op.log(_expr.const(base, dtype="float32"))
         return _op.divide(inputs[0], scalar)
@@ -371,7 +372,7 @@ def _mx_make_logarithm(base):
 
 def _mx_expm1():
     # exp_minus_1 x = exp(x) - 1
-    def _impl(inputs, _):  # Note: no attrs
+    def _impl(inputs, attrs, mod):  # Note: no attrs
         assert len(inputs) == 1
         one = _expr.const(1, dtype="float32")
         return _op.log(_op.subtract(inputs[0], one))
@@ -380,14 +381,14 @@ def _mx_expm1():
 
 def _mx_log1p():
     # 1_plus_log x = log(x + 1)
-    def _impl(inputs, _):  # Note: no attrs
+    def _impl(inputs, attrs, mod):  # Note: no attrs
         assert len(inputs) == 1
         one = _expr.const(1, dtype="float32")
         return _op.log(_op.add(inputs[0], one))
     return _impl
 
 
-def _mx_lrn(inputs, attrs):
+def _mx_lrn(inputs, attrs, mod):
     new_attrs = {}
     new_attrs["alpha"] = attrs.get_float("alpha", 0.0001)
     new_attrs["beta"] = attrs.get_float("beta", 0.75)
@@ -399,7 +400,7 @@ def _mx_lrn(inputs, attrs):
     return _op.nn.lrn(inputs[0], **new_attrs)
 
 
-def _mx_multibox_prior(inputs, attrs):
+def _mx_multibox_prior(inputs, attrs, mod):
     new_attrs = {}
     new_attrs["sizes"] = attrs.get_float_tuple("sizes", (1.0, ))
     new_attrs["steps"] = attrs.get_float_tuple("steps", (-1.0, -1.0))
@@ -409,7 +410,7 @@ def _mx_multibox_prior(inputs, attrs):
     return _op.vision.multibox_prior(inputs[0], **new_attrs)
 
 
-def _mx_multibox_detection(inputs, attrs):
+def _mx_multibox_detection(inputs, attrs, mod):
     new_attrs0 = {}
     new_attrs0["clip"] = attrs.get_bool("clip", True)
     new_attrs0["threshold"] = attrs.get_float("threshold", 0.01)
@@ -427,7 +428,7 @@ def _mx_multibox_detection(inputs, attrs):
     return _op.vision.non_max_suppression(ret[0], ret[1], **new_attrs1)
 
 
-def _mx_batch_dot(inputs, attrs):
+def _mx_batch_dot(inputs, attrs, mod):
     assert len(inputs) == 2
     a, b = inputs
     transpose_a = attrs.get_bool("transpose_a", False)
@@ -441,29 +442,28 @@ def _mx_batch_dot(inputs, attrs):
     return _op.nn.batch_matmul(a, b)
 
 
-def _mx_arange(inputs, attrs):
+def _mx_arange(inputs, attrs, mod):
     assert len(inputs) == 0
     if attrs.get_int("repeat", 1) != 1:
         raise tvm.error.OpAttributeUnimplemented(
             'Attribute "repeat" is not supported in operator arange.')
+    dtype = attrs.get_str("dtype", "float32")
     new_attrs = {}
-    new_attrs["start"] = attrs.get_float("start", 0)
-    new_attrs["stop"] = attrs.get_float("stop")
-    new_attrs["step"] = attrs.get_float("step", 1)
-    new_attrs["dtype"] = attrs.get_str("dtype", "float32")
+    new_attrs["start"] = _op.const(attrs.get_float("start", 0), dtype)
+    new_attrs["stop"] = _op.const(attrs.get_float("stop"), dtype)
+    new_attrs["step"] = _op.const(attrs.get_float("step", 1), dtype)
+    new_attrs["dtype"] = dtype
+
     return _op.arange(**new_attrs)
 
 
-def _mx_contrib_sarange(inputs, attrs):
+def _mx_contrib_sarange(inputs, attrs, mod):
     dtype = "float32"
-    data = ir_pass.infer_type(inputs[0])
-    data = ir_pass.fold_constant(data)
-    assert isinstance(data, _expr.Constant)
-    stop = data.data.asnumpy()[0].astype(dtype)
-    return _op.arange(_op.const(stop, dtype), dtype=dtype)
+    stop = _op.take(inputs[0], _op.const(0, 'int32'))
+    return _op.arange(stop, dtype=dtype)
 
 
-def _mx_repeat(inputs, attrs):
+def _mx_repeat(inputs, attrs, mod):
     assert len(inputs) == 1
     new_attrs = {}
     new_attrs["repeats"] = attrs.get_int("repeats")
@@ -471,14 +471,14 @@ def _mx_repeat(inputs, attrs):
     return _op.repeat(inputs[0], **new_attrs)
 
 
-def _mx_tile(inputs, attrs):
+def _mx_tile(inputs, attrs, mod):
     assert len(inputs) == 1
     new_attrs = {}
     new_attrs["reps"] = attrs.get_int_tuple("reps")
     return _op.tile(inputs[0], **new_attrs)
 
 
-def _mx_take(inputs, attrs):
+def _mx_take(inputs, attrs, mod):
     assert len(inputs) == 2
     mode = attrs.get_str("mode", "clip")
     if mode == "raise":
@@ -487,14 +487,14 @@ def _mx_take(inputs, attrs):
     return _op.take(inputs[0], inputs[1].astype("int32"), axis, mode)
 
 
-def _mx_reverse(inputs, attrs):
+def _mx_reverse(inputs, attrs, mod):
     assert len(inputs) == 1
     new_attrs = {}
     new_attrs["axis"] = attrs.get_int("axis")
     return _op.reverse(inputs[0], **new_attrs)
 
 
-def _mx_roi_align(inputs, attrs):
+def _mx_roi_align(inputs, attrs, mod):
     new_attrs = {}
     new_attrs["pooled_size"] = attrs.get_int_tuple("pooled_size")
     new_attrs["spatial_scale"] = attrs.get_float("spatial_scale")
@@ -502,7 +502,8 @@ def _mx_roi_align(inputs, attrs):
     new_attrs["layout"] = "NCHW"
     return _op.vision.roi_align(inputs[0], inputs[1], **new_attrs)
 
-def _mx_resize(inputs, attrs):
+
+def _mx_resize(inputs, attrs, mod):
     scale_height = attrs.get_float("scale_height", None)
     scale_width = attrs.get_float("scale_width", None)
     height = attrs.get_int("height", 1)
@@ -515,7 +516,8 @@ def _mx_resize(inputs, attrs):
     size = (height, width)
     return _op.image.resize(inputs[0], size, align_corners=True)
 
-def _mx_roi_pooling(inputs, attrs):
+
+def _mx_roi_pooling(inputs, attrs, mod):
     new_attrs = {}
     new_attrs["pooled_size"] = attrs.get_int_tuple("pooled_size")
     new_attrs["spatial_scale"] = attrs.get_float("spatial_scale")
@@ -523,7 +525,7 @@ def _mx_roi_pooling(inputs, attrs):
     return _op.vision.roi_pool(inputs[0], inputs[1], **new_attrs)
 
 
-def _mx_proposal(inputs, attrs):
+def _mx_proposal(inputs, attrs, mod):
     new_attrs = {}
     new_attrs["scales"] = attrs.get_float_tuple("scales", (4.0, 8.0, 16.0, 32.0))
     new_attrs["ratios"] = attrs.get_float_tuple("ratios", (0.5, 1.0, 2.0))
@@ -537,7 +539,7 @@ def _mx_proposal(inputs, attrs):
     return _op.vision.proposal(inputs[0], inputs[1], inputs[2], **new_attrs)
 
 
-def _mx_box_nms(inputs, attrs):
+def _mx_box_nms(inputs, attrs, mod):
     force_suppress = attrs.get_bool("force_suppress", False)
     iou_thresh = attrs.get_float('overlap_thresh', 0.5)
     top_k = attrs.get_int('topk', -1)
@@ -568,7 +570,7 @@ def _mx_box_nms(inputs, attrs):
     return nms_out
 
 
-def _mx_l2_normalize(inputs, attrs):
+def _mx_l2_normalize(inputs, attrs, mod):
     new_attrs = {}
     mode = attrs.get_str('mode', 'instance')
     if mode != 'channel':
@@ -579,7 +581,7 @@ def _mx_l2_normalize(inputs, attrs):
     return _op.nn.l2_normalize(inputs[0], **new_attrs)
 
 
-def _mx_shape_array(inputs, attrs):
+def _mx_shape_array(inputs, attrs, mod):
     assert len(inputs) == 1
     if attrs.get_int("lhs_begin", None) is not None:
         raise RuntimeError("shape_array doesn't support lhs_begin")
@@ -592,7 +594,7 @@ def _mx_shape_array(inputs, attrs):
     return _op.shape_of(inputs[0], dtype='int64')
 
 
-def _mx_full(inputs, attrs):
+def _mx_full(inputs, attrs, mod):
     assert len(inputs) == 0
     val = attrs.get_float("value")
     shape = attrs.get_int_tuple("shape")
@@ -600,13 +602,13 @@ def _mx_full(inputs, attrs):
     return _op.full(_expr.const(val, dtype), shape, dtype)
 
 
-def _mx_squeeze(inputs, attrs):
+def _mx_squeeze(inputs, attrs, mod):
     assert len(inputs) == 1
     axis = attrs.get_int_tuple("axis", None)
     return _op.squeeze(inputs[0], axis)
 
 
-def _mx_broadcast_axis(inputs, attrs):
+def _mx_broadcast_axis(inputs, attrs, mod):
     assert len(inputs) == 1
     axis = attrs.get_int_tuple("axis", [])
     size = attrs.get_int_tuple("size", [])
@@ -625,13 +627,13 @@ def _mx_broadcast_axis(inputs, attrs):
     return _op.broadcast_to(inputs[0], tgt_shape)
 
 
-def _mx_embedding(inputs, _):
+def _mx_embedding(inputs, attrs, mod):
     assert len(inputs) == 2
     indices, weight = inputs
     return _op.take(weight, indices.astype('int32'), axis=0)
 
 
-def _mx_smooth_l1(inputs, attrs):
+def _mx_smooth_l1(inputs, attrs, mod):
     scalar = attrs.get_float("scalar", 1.0)
     scalar_sq = scalar * scalar
     mask = _op.less(inputs[0], _expr.const(1.0 / scalar_sq, dtype='float32'))
@@ -640,7 +642,7 @@ def _mx_smooth_l1(inputs, attrs):
                      _op.abs(inputs[0]) - _expr.const(0.5 / scalar_sq))
 
 
-def _mx_deformable_convolution(inputs, attrs):
+def _mx_deformable_convolution(inputs, attrs, mod):
     new_attrs = {}
     assert attrs.get_bool("no_bias")
     new_attrs["kernel_size"] = attrs.get_int_tuple("kernel")
@@ -659,7 +661,7 @@ def _mx_deformable_convolution(inputs, attrs):
     return res
 
 
-def _mx_argsort(inputs, attrs):
+def _mx_argsort(inputs, attrs, mod):
     assert len(inputs) == 1
     new_attrs = {}
     new_attrs["axis"] = attrs.get_int("axis", -1)
@@ -668,7 +670,7 @@ def _mx_argsort(inputs, attrs):
     return _op.vision.argsort(inputs[0], **new_attrs)
 
 
-def _mx_contrib_div_sqrt_dim(inputs, attrs):
+def _mx_contrib_div_sqrt_dim(inputs, attrs, mod):
     assert len(inputs) == 1
     ndim = len(ir_pass.infer_type(inputs[0])._checked_type_.shape)
     dim = _op.take(_op.shape_of(inputs[0]), _expr.const(ndim-1, dtype="int32"))
@@ -677,7 +679,7 @@ def _mx_contrib_div_sqrt_dim(inputs, attrs):
     return out
 
 
-def _mx_foreach(inputs, attrs, subgraphs, dtype_info, mod):
+def _mx_foreach(inputs, attrs, subgraphs, mod):
     from tvm.relay.prelude import Prelude
     p = Prelude(mod)
     nil = p.nil
@@ -746,7 +748,7 @@ def _mx_foreach(inputs, attrs, subgraphs, dtype_info, mod):
     return _expr.TupleWrapper(ret, num_states+1)
 
 
-def _mx_while_loop(inputs, attrs, subgraphs, dtype_info, mod):
+def _mx_while_loop(inputs, attrs, subgraphs, mod):
     from tvm.relay.prelude import Prelude
     p = Prelude(mod)
     nil = p.nil
@@ -766,13 +768,17 @@ def _mx_while_loop(inputs, attrs, subgraphs, dtype_info, mod):
     num_out_data = attrs.get_int("num_out_data")
     num_outputs = attrs.get_int("num_outputs")
 
-    all_outs = _expr.var("all_outs")
+    if num_out_data == 0:
+        all_outs = None
+    else:
+        all_outs = _expr.var("all_outs")
     while_loop = _expr.GlobalVar("while_loop")
     prev_states = [input_args[func_input_locs[j]] for j in func_var_locs]
 
     cond_args = [input_args[j] for j in cond_input_locs]
     cond_arg_shapes = [arg.type_annotation.shape for arg in cond_args]
-    cond_body = _from_mxnet_impl(mod, subgraphs[0], cond_arg_shapes, dtype_info)
+    cond_arg_dtype_info = [arg.type_annotation.dtype for arg in cond_args]
+    cond_body = _from_mxnet_impl(mod, subgraphs[0], cond_arg_shapes, cond_arg_dtype_info)
     cond_ret = _expr.Call(cond_body, cond_args)
     cond = _op.take(cond_ret, _expr.const(0)).astype("bool")
 
@@ -780,32 +786,46 @@ def _mx_while_loop(inputs, attrs, subgraphs, dtype_info, mod):
     with sb.if_scope(cond):
         func_args = [input_args[j] for j in func_input_locs]
         func_arg_shapes = [arg.type_annotation.shape for arg in func_args]
-        func = _from_mxnet_impl(mod, subgraphs[1], func_arg_shapes, dtype_info)
+        func_arg_dtype_info = [arg.type_annotation.dtype for arg in func_args]
+        func = _from_mxnet_impl(mod, subgraphs[1], func_arg_shapes, func_arg_dtype_info)
         func_ret = _expr.Call(func, func_args)
-        if num_out_data == 1:
+        if num_out_data == 0:
+            out = None
+        elif num_out_data == 1:
             out = _expr.TupleGetItem(func_ret, 0)
         else:
             out = _expr.Tuple([_expr.TupleGetItem(func_ret, j) for j in range(num_out_data)])
-        new_all_outs = cons(out, all_outs)
+        new_all_outs = None if out is None else cons(out, all_outs)
         states = [_expr.TupleGetItem(func_ret, j) for j in range(num_out_data, num_outputs)]
         recur_args = input_args[:]
         for i, func_idx in enumerate(func_var_locs):
             recur_args[func_input_locs[func_idx]] = states[i]
-        recur_ret = _expr.Call(while_loop, recur_args + [new_all_outs])
+        if num_out_data == 0:
+            recur_ret = _expr.Call(while_loop, recur_args)
+        else:
+            recur_ret = _expr.Call(while_loop, recur_args + [new_all_outs])
         sb.ret(recur_ret)
     with sb.else_scope():
-        sb.ret(_expr.Tuple([all_outs] + prev_states))
+        if num_out_data == 0:
+            sb.ret(_expr.Tuple(prev_states))
+        else:
+            sb.ret(_expr.Tuple([all_outs] + prev_states))
 
     body = sb.get()
-    while_args = input_args + [all_outs]
-    # print(while_args)
+    if num_out_data == 0:
+        while_args = input_args
+    else:
+        while_args = input_args + [all_outs]
     func = _expr.Function(while_args, body)
     mod[while_loop] = func
-    ret = _expr.Call(while_loop, inputs + [nil()])
+    if num_out_data == 0:
+        ret = _expr.Call(while_loop, inputs)
+    else:
+        ret = _expr.Call(while_loop, inputs + [nil()])
     return _expr.TupleWrapper(ret, num_outputs)
 
 
-def _mx_layer_norm(inputs, attrs):
+def _mx_layer_norm(inputs, attrs, mod):
     assert len(inputs) == 3
     if attrs.get_bool("output_mean_var", False):
         raise RuntimeError("layer_norm does not support output_mean_var")
@@ -815,11 +835,11 @@ def _mx_layer_norm(inputs, attrs):
     return _op.nn.layer_norm(*inputs, **new_attrs)
 
 
-def _mx_sequence_mask(inputs, attrs):
+def _mx_sequence_mask(inputs, attrs, mod):
     return inputs[0]
 
 
-def _mx_topk(inputs, attrs):
+def _mx_topk(inputs, attrs, mod):
     assert len(inputs) == 1
     axis = attrs.get_int("axis", -1)
     ret_type = attrs.get_str("ret_typ", "indices")
@@ -1055,6 +1075,7 @@ def _from_mxnet_impl(mod, symbol, shape_dict, dtype_info):
         jgraph = json.loads(symbol.tojson())
     jnodes = jgraph["nodes"]
     node_map = {}
+    free_vars = []
 
     for nid, node in enumerate(jnodes):
         children = [node_map[e[0]][e[1]] for e in node["inputs"]]
@@ -1070,16 +1091,19 @@ def _from_mxnet_impl(mod, symbol, shape_dict, dtype_info):
                 raise ValueError("Unknown type of shape_dict: %s" + type(shape_dict))
             if isinstance(dtype_info, dict):
                 dtype = dtype_info[node_name] if node_name in dtype_info else "float32"
+            elif isinstance(dtype_info, list):
+                dtype = dtype_info.pop(0)
             else:
                 dtype = dtype_info
-            node_map[nid] = [_expr.var(node_name, shape=shape, dtype=dtype)]
+            var = _expr.var(node_name, shape=shape, dtype=dtype)
+            node_map[nid] = [var]
+            free_vars.append(var)
         elif op_name in _convert_map:
-#            print("processing node {}".format(node))
             if op_name in ['_foreach', '_while_loop']:
                 subgraphs = node['subgraphs']
-                res = _convert_map[op_name](children, attrs, subgraphs, dtype_info, mod)
+                res = _convert_map[op_name](children, attrs, subgraphs, mod)
             else:
-                res = _convert_map[op_name](children, attrs)
+                res = _convert_map[op_name](children, attrs, mod)
             if isinstance(res, (_expr.TupleWrapper, tuple, list)):
                 pass
             elif isinstance(res, _expr.Expr):
@@ -1096,7 +1120,7 @@ def _from_mxnet_impl(mod, symbol, shape_dict, dtype_info):
     outputs = outputs[0] if len(outputs) == 1 else _expr.Tuple(outputs)
     if isinstance(outputs, _expr.Function):
         return outputs
-    func = _expr.Function(ir_pass.free_vars(outputs), outputs)
+    func = _expr.Function(free_vars, outputs)
     return func
 
 def _update_shape_dtype(shape, dtype, params):
@@ -1122,8 +1146,7 @@ def from_mxnet(symbol,
                dtype="float32",
                arg_params=None,
                aux_params=None,
-               input_symbols=None,
-               module=None):
+               input_symbols=None):
     """Convert from MXNet"s model into compatible relay Function.
 
     Parameters
@@ -1155,6 +1178,7 @@ def from_mxnet(symbol,
         import mxnet as mx
     except ImportError as e:
         raise ImportError("{}. MXNet is required to parse symbols.".format(e))
+    mod = _module.Module()
 
     if isinstance(symbol, mx.sym.Symbol):
         params = {}
@@ -1165,7 +1189,7 @@ def from_mxnet(symbol,
         for k, v in aux_params.items():
             params[k] = _nd.array(v.asnumpy())
         shape, dtype = _update_shape_dtype(shape, dtype, params)
-        sym = _from_mxnet_impl(module, symbol, shape, dtype)
+        sym = _from_mxnet_impl(mod, symbol, shape, dtype)
     elif isinstance(symbol, mx.gluon.HybridBlock):
         if arg_params is not None or aux_params is not None:
             raise ValueError("arg_params and aux_params ae not used when importing HybridBlock")
@@ -1181,10 +1205,11 @@ def from_mxnet(symbol,
         if isinstance(sym, (list, tuple)):
             sym = mx.sym.Group(sym)
         shape, dtype = _update_shape_dtype(shape, dtype, params)
-        sym = _from_mxnet_impl(module, sym, shape, dtype)
+        sym = _from_mxnet_impl(mod, sym, shape, dtype)
     elif isinstance(symbol, mx.gluon.Block):
         raise NotImplementedError("Only Hybrid Blocks are supported now.")
     else:
         msg = "mxnet.Symbol or gluon.HybridBlock expected, got {}".format(type(symbol))
         raise ValueError(msg)
-    return sym, params
+    mod[mod.entry_func] = sym
+    return mod, params

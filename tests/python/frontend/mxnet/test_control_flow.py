@@ -1,4 +1,5 @@
 import os
+import numpy as np
 import mxnet as mx
 from mxnet import gluon
 import tvm
@@ -84,17 +85,16 @@ def test_while():
     scan_layer.hybridize()
     scan_layer(data)
     mx_sym = scan_layer._cached_graph[1]
-    mod = relay.module.Module()
-    sym, _ = relay.frontend.from_mxnet(mx_sym, shape={'data': (5,)}, module=mod)
-    print(sym)
+    mod, _ = relay.frontend.from_mxnet(mx_sym, shape={'data': (5,)})
 
-    for v, func in mod.functions.items():
-        if v.name_hint == 'while_loop':
-            print(relay.ir_pass.infer_type(func, mod=mod))
+    # for v, func in mod.functions.items():
+    #     if v.name_hint == 'while_loop':
+    #         print(relay.ir_pass.infer_type(func, mod=mod))
 
-    inputs = [relay.var('data')]
-    mod[mod.entry_func] = relay.Function(inputs, relay.Call(sym, inputs))
+    # inputs = [relay.var('data')]
+    # mod[mod.entry_func] = relay.Function(inputs, relay.Call(sym, inputs))
     print(relay.ir_pass.infer_type(mod[mod.entry_func], mod=mod))
+    # return
 
     data_np = np.arange(n).astype('float32')
 
@@ -103,9 +103,9 @@ def test_while():
     op_res = intrp.evaluate(mod.entry_func)(data_np)
     print("Interpreter result is {}".format(op_res))
 
-    print('eval vm')
-    result = _eval_vm(mod, tvm.cpu(), data_np)
-    print("Relay result is {}".format(result))
+    # print('eval vm')
+    # result = _eval_vm(mod, tvm.cpu(), data_np)
+    # print("Relay result is {}".format(result))
 
     mx_inputs = [mx.nd.array(data_np)]
     mx_outputs = scan_layer(*mx_inputs)
@@ -128,5 +128,5 @@ def test_cond():
 
 if __name__ == "__main__":
     # test_rnn('lstm')
-    # test_while()
-    test_cond()
+    test_while()
+    # test_cond()
