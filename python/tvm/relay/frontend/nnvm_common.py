@@ -92,31 +92,31 @@ def _arg_reduce(new_op):
     return _impl
 
 
-def _cast(inputs, attrs):
+def _cast(inputs, attrs, mod=None):
     """Type cast"""
     dtype = attrs.get_str("dtype")
     return inputs[0].astype(dtype=dtype)
 
 
-def _clip(inputs, attrs):
+def _clip(inputs, attrs, mod=None):
     a_min = attrs.get_float("a_min")
     a_max = attrs.get_float("a_max")
     return _op.clip(inputs[0], a_min=a_min, a_max=a_max)
 
 
-def _transpose(inputs, attrs):
+def _transpose(inputs, attrs, mod=None):
     axes = attrs.get_int_tuple("axes", None)
     # translate default case
     axes = None if len(axes) == 0 else axes
     return _op.transpose(inputs[0], axes=axes)
 
 
-def _upsampling(inputs, attrs):
+def _upsampling(inputs, attrs, mod=None):
     scale = attrs.get_int("scale")
     return _op.nn.upsampling(inputs[0], scale=scale)
 
 
-def _elemwise_sum(inputs, _, _dtype='float32'):
+def _elemwise_sum(inputs, _, mod=None, _dtype='float32'):
     assert len(inputs) > 0
     res = inputs[0]
     for x in inputs[1:]:
@@ -136,7 +136,7 @@ def _binop_scalar(new_op, mod=None):
 
 
 def _rbinop_scalar(new_op):
-    def _impl(inputs, attrs, odtype='float32'):
+    def _impl(inputs, attrs, mod=None, odtype='float32'):
         assert len(inputs) == 1
         scalar = attrs.get_float("scalar")
         # Note: binary scalar only works for float op for now

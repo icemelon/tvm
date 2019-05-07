@@ -695,9 +695,14 @@ def _mx_foreach(inputs, attrs, subgraphs, mod):
     num_states = len(in_state_locs)
     num_outputs = len(subgraphs[0]["heads"]) - num_states
 
-    data = inputs[:num_data]
-    prev_states = inputs[num_data:num_data+num_states]
-    params = inputs[num_data+num_states:]
+    input_args = []
+    for i, arg in enumerate(inputs):
+        var = _expr.var("arg%s" % i, ir_pass.infer_type(arg).checked_type)
+        input_args.append(var)
+
+    data = input_args[:num_data]
+    prev_states = input_args[num_data:num_data+num_states]
+    params = input_args[num_data+num_states:]
     num_iter = _expr.var("num_iter", dtype='int32', shape=())
     loop_iter = _expr.var("i", dtype='int32', shape=())
     all_outs = _expr.var("all_outs")
@@ -707,20 +712,25 @@ def _mx_foreach(inputs, attrs, subgraphs, mod):
     with body_sb.if_scope(_op.equal(loop_iter, num_iter)):
         body_sb.ret(_expr.Tuple([all_outs] + prev_states))
     with body_sb.else_scope():
-        loop_body_args = [None] * len(inputs)
+        body_args = [None] * len(inputs)
         for k, v in enumerate(in_data_locs):
-            assert loop_body_args[v] is None
-            loop_body_args[v] = _op.take(data[k], loop_iter, 0)
+            assert body_args[v] is None
+            body_args[v] = _op.take(data[k], loop_iter, 0)
         for k, v in enumerate(in_state_locs):
-            assert loop_body_args[v] is None
-            loop_body_args[v] = prev_states[k]
+            assert body_args[v] is None
+            body_args[v] = prev_states[k]
         for k, v in enumerate(remain_locs):
-            assert loop_body_args[v] is None
-            loop_body_args[v] = params[k]
-        loop_body_arg_shapes = [ir_pass.infer_type(arg).checked_type.shape
-                                for arg in loop_body_args]
-        loop_body = _from_mxnet_impl(mod, subgraphs[0], loop_body_arg_shapes, dtype_info)
-        loop_body_ret = _expr.Call(loop_body, loop_body_args)
+            assert body_args[v] is None
+            body_args[v] = params[k]
+        body_arg_shapes = []
+        body_arg_dtype_info = []
+        for arg in body_args:
+            ty = ir_pass.infer_type(arg).checked_type
+            body_arg_shapes.append(ty.shape)
+            body_arg_dtype_info.append(ty.dtype)
+        loop_body = _from_mxnet_impl(mod, subgraphs[0], body_arg_shapes, body_arg_dtype_info)
+        loop_body_ret = _expr.Call(loop_body, body_args)
+        print(loop_body_ret)
 
         if num_outputs == 1:
             out = _expr.TupleGetItem(loop_body_ret, 0)
@@ -732,14 +742,13 @@ def _mx_foreach(inputs, attrs, subgraphs, mod):
         body_sb.ret(recur_ret)
 
     body = body_sb.get()
-    loop_args = inputs + [num_iter, loop_iter, all_outs]
-    func = _expr.Function(loop_args, body)
+    foreach_args = input_args + [num_iter, loop_iter, all_outs]
+    func = _expr.Function(foreach_args, body)
     mod[loop] = func
 
     data0_shape = _op.shape_of(inputs[0])
     num_iter = _op.take(data0_shape, _expr.const(0))
-    loop_args = inputs + [num_iter, _expr.const(0), nil()]
-    ret = _expr.Call(loop, loop_args)
+    ret = _expr.Call(loop, inputs + [num_iter, _expr.const(0), nil()])
     # Currently return the all_outs in reverse order because foldl and rev fail
     # to compile in the vm
     # all_outs = p.rev(_expr.TupleGetItem(ret, 0))

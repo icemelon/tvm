@@ -13,8 +13,8 @@ def import_mxnet_model(fname, num_states):
         data_names.append('data%s' % (i+1))
 
     model_data_dir = os.path.dirname(os.path.realpath(__file__))
-    net = gluon.nn.SymbolBlock.imports("%s/model_zoo_data/%s-symbol.json.data" % (model_data_dir, fname), data_names,
-                                       "%s/model_zoo_data/%s-0001.params.data" % (model_data_dir, fname), ctx=ctx)
+    net = gluon.nn.SymbolBlock.imports("%s/model_zoo_data/%s-symbol.json" % (model_data_dir, fname), data_names,
+                                       "%s/model_zoo_data/%s-0001.params" % (model_data_dir, fname), ctx=ctx)
     net.hybridize()
     return net
 
@@ -34,34 +34,28 @@ def test_rnn(cell_type):
         shapes['state%s' % i] = state_shape
         mx_input_syms.append(mx.sym.Variable("state%s" % i))
 
-    mod = relay.module.Module()
-    relay_net, params = relay.frontend.from_mxnet(mx_net, shape=shapes, input_symbols=mx_input_syms, module=mod)
-    params = params.items()
-
-    loop = None
-    for v, func in mod.functions.items():
-        if v.name_hint == 'foreach':
-            loop = v
-            print(relay.ir_pass.infer_type(func, mod=mod))
-            # print("func params: {}".format(func.params))
-
-    inputs = [relay.var('data')]
-    for i in range(num_states):
-        inputs.append(relay.var('state%s' % i))
-    for name, _ in params:
-        inputs.append(relay.var(name))
-    mod[mod.entry_func] = relay.Function(inputs, relay.Call(relay_net, inputs))
-    print(relay.ir_pass.infer_type(mod[mod.entry_func], mod=mod))
+    # mod = relay.module.Module()
+    mod, params = relay.frontend.from_mxnet(mx_net, shape=shapes, input_symbols=mx_input_syms)
+    # print(relay.ir_pass.infer_type(mod[mod.entry_func], mod=mod))
+    # loop = None
+    # for v, func in mod.functions.items():
+    #     if v.name_hint == 'foreach':
+    #         loop = v
+    #         print(relay.ir_pass.infer_type(func, mod=mod))
 
     l = 5
     data_v = np.random.rand(l, batch, 128).astype('float32')
-    states_v = [np.random.rand(*state_shape).astype('float32') for _ in range(num_states)]
-    params_v = [e[1].asnumpy() for e in params]
-    print('eval vm')
-    result = _eval_vm(mod, tvm.cpu(), data_v, *states_v, *params_v)
+    states_v = {}
+    for i in range(num_states):
+        states_v['state%s' % i] = np.random.rand(*state_shape).astype('float32')
+    print('eval relay')
+    intrp = relay.create_executor('debug', mod=mod, ctx=tvm.cpu(), target='llvm')
+    result = intrp.evaluate(mod[mod.entry_func])(data=data_v, **states_v, **params)
     print("Relay result is {}".format(result))
 
-    mx_inputs = [mx.nd.array(x) for x in [data_v, *states_v]]
+    mx_inputs = [mx.nd.array(data_v)]
+    for n in states_v:
+        mx_inputs.append(mx.nd.array(states_v[n]))
     mx_outputs = mx_net(*mx_inputs)
     print("======== MXNet result ==========")
     for o in mx_outputs:
@@ -86,18 +80,12 @@ def test_while():
     scan_layer(data)
     mx_sym = scan_layer._cached_graph[1]
     mod, _ = relay.frontend.from_mxnet(mx_sym, shape={'data': (5,)})
-
+    # print(relay.ir_pass.infer_type(mod[mod.entry_func], mod=mod))
     # for v, func in mod.functions.items():
     #     if v.name_hint == 'while_loop':
     #         print(relay.ir_pass.infer_type(func, mod=mod))
 
-    # inputs = [relay.var('data')]
-    # mod[mod.entry_func] = relay.Function(inputs, relay.Call(sym, inputs))
-    print(relay.ir_pass.infer_type(mod[mod.entry_func], mod=mod))
-    # return
-
     data_np = np.arange(n).astype('float32')
-
     print('eval interpreter')
     intrp = relay.create_executor("debug", mod=mod, ctx=tvm.cpu(), target="llvm")
     op_res = intrp.evaluate(mod.entry_func)(data_np)
@@ -127,6 +115,6 @@ def test_cond():
     relay.frontend.from_mxnet(out)
 
 if __name__ == "__main__":
-    # test_rnn('lstm')
-    test_while()
+    test_rnn('lstm')
+    # test_while()
     # test_cond()
