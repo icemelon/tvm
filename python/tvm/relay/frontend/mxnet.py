@@ -685,11 +685,11 @@ def _mx_cond(inputs, attrs, subgraphs, mod):
     cond_input_locs = json.loads(attrs.get_str("cond_input_locs"))
     then_input_locs = json.loads(attrs.get_str("then_input_locs"))
     else_input_locs = json.loads(attrs.get_str("else_input_locs"))
-    # num_outputs = attrs.get_int("num_outputs")
+    num_outputs = attrs.get_int("num_outputs")
 
     input_args = []
     for i, arg in enumerate(inputs):
-        var = _expr.var("arg%s" % i, ir_pass.infer_type(arg).checked_type)
+        var = _expr.var("arg%s" % i, ir_pass.infer_type(arg, mod=mod).checked_type)
         input_args.append(var)
     cond_args = [input_args[i] for i in cond_input_locs]
     then_args = [input_args[i] for i in then_input_locs]
@@ -713,6 +713,8 @@ def _mx_cond(inputs, attrs, subgraphs, mod):
         sb.ret(_expr.Call(else_func, else_args))
     func = _expr.Function(input_args, sb.get())
     ret = _expr.Call(func, inputs)
+    if num_outputs > 1:
+        ret = _expr.TupleWrapper(ret, num_outputs)
     return ret
 
 
@@ -733,7 +735,7 @@ def _mx_foreach(inputs, attrs, subgraphs, mod):
 
     input_args = []
     for i, arg in enumerate(inputs):
-        var = _expr.var("arg%s" % i, ir_pass.infer_type(arg).checked_type)
+        var = _expr.var("arg%s" % i, ir_pass.infer_type(arg, mod=mod).checked_type)
         input_args.append(var)
 
     data = input_args[:num_data]
@@ -766,7 +768,6 @@ def _mx_foreach(inputs, attrs, subgraphs, mod):
             body_arg_dtype_info.append(ty.dtype)
         loop_body = _from_mxnet_impl(mod, subgraphs[0], body_arg_shapes, body_arg_dtype_info)
         loop_body_ret = _expr.Call(loop_body, body_args)
-        print(loop_body_ret)
 
         if num_outputs == 1:
             out = _expr.TupleGetItem(loop_body_ret, 0)
@@ -803,7 +804,7 @@ def _mx_while_loop(inputs, attrs, subgraphs, mod):
     assert len(subgraphs) == 2
     input_args = []
     for i, arg in enumerate(inputs):
-        var = _expr.var("arg%s" % i, ir_pass.infer_type(arg).checked_type)
+        var = _expr.var("arg%s" % i, ir_pass.infer_type(arg, mod=mod).checked_type)
         input_args.append(var)
 
     cond_input_locs = attrs.get_int_tuple("cond_input_locs")
