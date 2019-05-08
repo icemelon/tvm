@@ -111,10 +111,22 @@ def test_cond():
     def else_func():
         return mx.sym.square(y)
     out = mx.sym.contrib.cond(mx.sym.min(x) < mx.sym.min(y), then_func, else_func)
+    mod, _ = relay.frontend.from_mxnet(out, shape={'x': (2, 3), 'y': (2, 3), 'z': (2, 3)})
 
-    relay.frontend.from_mxnet(out)
+    x_np = np.random.uniform(size=(2, 3)).astype('float32')
+    y_np = np.random.uniform(size=(2, 3)).astype('float32')
+    z_np = np.random.uniform(size=(2, 3)).astype('float32')
+    intrp = relay.create_executor("debug", mod=mod, ctx=tvm.cpu(), target="llvm")
+    op_res = intrp.evaluate(mod.entry_func)(x_np, y_np, z_np)
+    # print("Interpreter result is {}".format(op_res))
+    if np.min(x_np) < np.min(y_np):
+        ref_res = x_np + z_np
+    else:
+        ref_res = np.power(y_np, 2)
+    tvm.testing.assert_allclose(op_res.asnumpy(), ref_res)
+
 
 if __name__ == "__main__":
-    test_rnn('lstm')
-    # test_while()
-    # test_cond()
+    # test_rnn('lstm')
+    test_while()
+    test_cond()

@@ -346,7 +346,8 @@ def _mx_leaky_relu(inputs, attrs, mod):
 def _mx_make_power(power):
     def _impl(inputs, attrs, mod):  # Note: no attrs
         assert len(inputs) == 1
-        scalar = _expr.const(power, dtype=None)
+        dtype = ir_pass.infer_type(inputs[0], mod=mod).checked_type.dtype
+        scalar = _expr.const(power, dtype=dtype)
         # Note: int maps to "int32", float maps to "float32"
         return _op.power(inputs[0], scalar)
     return _impl
@@ -679,6 +680,42 @@ def _mx_contrib_div_sqrt_dim(inputs, attrs, mod):
     return out
 
 
+def _mx_cond(inputs, attrs, subgraphs, mod):
+    assert len(subgraphs) == 3
+    cond_input_locs = json.loads(attrs.get_str("cond_input_locs"))
+    then_input_locs = json.loads(attrs.get_str("then_input_locs"))
+    else_input_locs = json.loads(attrs.get_str("else_input_locs"))
+    # num_outputs = attrs.get_int("num_outputs")
+
+    input_args = []
+    for i, arg in enumerate(inputs):
+        var = _expr.var("arg%s" % i, ir_pass.infer_type(arg).checked_type)
+        input_args.append(var)
+    cond_args = [input_args[i] for i in cond_input_locs]
+    then_args = [input_args[i] for i in then_input_locs]
+    else_args = [input_args[i] for i in else_input_locs]
+
+    cond_arg_shapes = [arg.type_annotation.shape for arg in cond_args]
+    cond_arg_dtype_info = [arg.type_annotation.dtype for arg in cond_args]
+    cond_func = _from_mxnet_impl(mod, subgraphs[0], cond_arg_shapes, cond_arg_dtype_info)
+    cond = _expr.Call(cond_func, cond_args).astype("bool")
+
+    sb = _scope_builder.ScopeBuilder()
+    with sb.if_scope(cond):
+        then_arg_shapes = [arg.type_annotation.shape for arg in then_args]
+        then_arg_dtype_info = [arg.type_annotation.dtype for arg in then_args]
+        then_func = _from_mxnet_impl(mod, subgraphs[1], then_arg_shapes, then_arg_dtype_info)
+        sb.ret(_expr.Call(then_func, then_args))
+    with sb.else_scope():
+        else_arg_shapes = [arg.type_annotation.shape for arg in else_args]
+        else_arg_dtype_info = [arg.type_annotation.dtype for arg in else_args]
+        else_func = _from_mxnet_impl(mod, subgraphs[2], else_arg_shapes, else_arg_dtype_info)
+        sb.ret(_expr.Call(else_func, else_args))
+    func = _expr.Function(input_args, sb.get())
+    ret = _expr.Call(func, inputs)
+    return ret
+
+
 def _mx_foreach(inputs, attrs, subgraphs, mod):
     from tvm.relay.prelude import Prelude
     p = Prelude(mod)
@@ -690,7 +727,6 @@ def _mx_foreach(inputs, attrs, subgraphs, mod):
     in_data_locs = json.loads(attrs.get_str('in_data_locs'))
     in_state_locs = json.loads(attrs.get_str('in_state_locs'))
     remain_locs = json.loads(attrs.get_str('remain_locs'))
-
     num_data = len(in_data_locs)
     num_states = len(in_state_locs)
     num_outputs = len(subgraphs[0]["heads"]) - num_states
@@ -919,6 +955,7 @@ _convert_map = {
     "broadcast_greater_equal": _mx_compare(_op.greater_equal, _rename),
     "broadcast_lesser"       : _mx_compare(_op.less, _rename),
     "broadcast_lesser_equal" : _mx_compare(_op.less_equal, _rename),
+    "_lesser"                : _mx_compare(_op.less, _rename),
     "elemwise_add"           : _rename(_op.add),
     "elemwise_sub"           : _rename(_op.subtract),
     "elemwise_mul"           : _rename(_op.multiply),
@@ -1039,6 +1076,7 @@ _convert_map = {
     "_contrib_DeformableConvolution" : _mx_deformable_convolution,
     "_contrib_AdaptiveAvgPooling2D" : _mx_adaptive_pooling,
     # control flow
+    "_cond"       : _mx_cond,
     "_foreach"    : _mx_foreach,
     "_while_loop" : _mx_while_loop,
     # junru branch op
@@ -1108,7 +1146,7 @@ def _from_mxnet_impl(mod, symbol, shape_dict, dtype_info):
             node_map[nid] = [var]
             free_vars.append(var)
         elif op_name in _convert_map:
-            if op_name in ['_foreach', '_while_loop']:
+            if op_name in ['_cond', '_foreach', '_while_loop']:
                 subgraphs = node['subgraphs']
                 res = _convert_map[op_name](children, attrs, subgraphs, mod)
             else:
