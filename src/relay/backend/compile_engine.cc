@@ -422,6 +422,22 @@ const CompileEngine& CompileEngine::Global() {
   return *inst;
 }
 
+PackedFunc CompileShapeFunc(Array<tvm::Tensor> inputs, Array<tvm::Tensor> outputs) {
+  Array<Operation> out_ops;
+  for (auto t : outputs) {
+    out_ops.push_back(t->op);
+    inputs.push_back(t);
+  }
+  std::unordered_map<Tensor, Buffer> binds;
+  auto s = create_schedule(out_ops);
+  auto config = build_config();
+  auto target = target::llvm();
+  auto lowered = lower(s, inputs, "shape_func", binds, config);
+  tvm::runtime::Module module = build(lowered, target, Target(), config);
+  PackedFunc packed_func = module.GetFunction("shape_func");
+  return packed_func;
+}
+
 
 TVM_REGISTER_GLOBAL("relay.backend._make_CCacheKey")
 .set_body_typed<CCacheKey(Function, Array<Shape>, Target)>(CCacheKeyNode::make);

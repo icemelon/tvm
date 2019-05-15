@@ -40,7 +40,6 @@ def test_dyn_arange():
     y0 = relay.shape_of(x)
     y1 = relay.take(y0, relay.const(0, 'int32'))
     y2 = relay.op.arange(y1)
-    print(y2)
     ex = relay.create_executor()
     f = relay.Function([x], y2, type_params=[m, n, k])
     data = np.random.rand(10, 5, 3).astype('float32')
@@ -88,5 +87,5 @@ def test_dyn_concat():
 
 
 if __name__ == "__main__":
-    # test_dyn_arange()
+    test_dyn_arange()
     test_dyn_concat()
