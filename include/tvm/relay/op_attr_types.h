@@ -161,8 +161,10 @@ enum AnyCodegenStrategy {
 
 using Shape = Array<IndexExpr>;
 
-using FShapeFunc =
-  runtime::TypedPackedFunc<Array<Shape>(const Array<Input>& inputs)>;
+using FShapeFunc = runtime::TypedPackedFunc<
+  Array<Tensor>(const Attrs& attrs,
+                const Array<Tensor>& inputs,
+                const Array<Shape>& out_shapes)>;
 
 }  // namespace relay
 }  // namespace tvm

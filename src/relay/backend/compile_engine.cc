@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- * 
+ *
  *   http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -416,6 +416,22 @@ const CompileEngine& CompileEngine::Global() {
   static CompileEngine* inst = new CompileEngine(
       make_node<CompileEngineImpl>());
   return *inst;
+}
+
+PackedFunc CompileShapeFunc(Array<tvm::Tensor> inputs, Array<tvm::Tensor> outputs) {
+  Array<Operation> out_ops;
+  for (auto t : outputs) {
+    out_ops.push_back(t->op);
+    inputs.push_back(t);
+  }
+  std::unordered_map<Tensor, Buffer> binds;
+  auto s = create_schedule(out_ops);
+  auto config = build_config();
+  auto target = target::llvm();
+  auto lowered = lower(s, inputs, "shape_func", binds, config);
+  tvm::runtime::Module module = build(lowered, target, Target(), config);
+  PackedFunc packed_func = module.GetFunction("shape_func");
+  return packed_func;
 }
 
 

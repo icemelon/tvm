@@ -279,22 +279,6 @@ Array<Array<Layout>> ConcatenateLayout(
   return Array<Array<Layout> > {Array<Layout>(old_in_layouts.size(), ret), {ret}};
 }
 
-Array<Shape> ConcatenateShapeFunc(const Array<Input>& inputs) {
-  auto out_shape = inputs[0]->data.Shape();
-  for (size_t i = 1; i < inputs.size(); ++i) {
-    auto in_shape = inputs[i]->data.Shape();
-    for (size_t j = 0; j < in_shape.size(); ++j) {
-      out_shape[j] += in_shape[j];
-    }
-  }
-  Shape ret;
-  for (size_t i = 0; i < out_shape.size(); ++i) {
-    ret.push_back(tvm::Integer(out_shape[i]));
-  }
-  return { ret };
-}
-
-
 Expr MakeConcatenate(Expr data,
                      int axis) {
   auto attrs = make_node<ConcatenateAttrs>();
@@ -321,8 +305,7 @@ RELAY_REGISTER_OP("concatenate")
 .add_type_rel("Concatenate", ConcatenateRel)
 .set_attr<FInferCorrectLayout>("FInferCorrectLayout", ConcatenateLayout)
 .set_attr<FTVMCompute>("FTVMCompute", ConcatenateCompute)
-.set_attr<TOpPattern>("TOpPattern", kInjective)
-.set_attr<FShapeFunc>("FShapeFunc", ConcatenateShapeFunc);
+.set_attr<TOpPattern>("TOpPattern", kInjective);
 
 TVM_REGISTER_NODE_TYPE(StackAttrs);
 
@@ -1113,35 +1096,6 @@ Array<Tensor> ArangeCompute(const Attrs& attrs,
   return { dyn_arange(start, stop, step, param->dtype) };
 }
 
-Array<Shape> ArangeShapeFunc(const Array<Input>& inputs) {
-  CHECK(inputs.size() == 3u);
-  DLContext cpu_ctx;
-  cpu_ctx.device_type = kDLCPU;
-  cpu_ctx.device_id = 0;
-  runtime::NDArray cpu_start = inputs[0]->data.CopyTo(cpu_ctx);
-  runtime::NDArray cpu_stop = inputs[1]->data.CopyTo(cpu_ctx);
-  runtime::NDArray cpu_step = inputs[2]->data.CopyTo(cpu_ctx);
-  CHECK(cpu_start->dtype.code == 0U && cpu_start->dtype.bits == 32)
-    << "code=" << cpu_start->dtype.code
-    << " bits=" << cpu_start->dtype.bits;
-  CHECK(cpu_stop->dtype.code == 0U && cpu_stop->dtype.bits == 32)
-    << "code=" << cpu_stop->dtype.code
-    << " bits=" << cpu_stop->dtype.bits;
-  CHECK(cpu_step->dtype.code == 0U && cpu_step->dtype.bits == 32)
-    << "code=" << cpu_step->dtype.code
-    << " bits=" << cpu_step->dtype.bits;
-  auto start = reinterpret_cast<uint32_t*>(cpu_start->data)[0];
-  auto stop = reinterpret_cast<uint32_t*>(cpu_stop->data)[0];
-  auto step = reinterpret_cast<uint32_t*>(cpu_step->data)[0];
-  auto size = std::ceil(static_cast<double>(stop - start) / step);
-  RELAY_LOG(INFO)
-    << "start= " << start
-    << "stop= " << stop
-    << "step= " << step
-    << "size= " << size;
-  return { { tvm::Integer(size) } };
-}
-
 Expr MakeArange(Expr start,
                 Expr stop,
                 Expr step,
@@ -1177,8 +1131,7 @@ RELAY_REGISTER_OP("arange")
 .add_type_rel("Arange", ArangeRel)
 .set_attr<FTVMCompute>("FTVMCompute", ArangeCompute)
 .set_attr<TOpPattern>("TOpPattern", kInjective)
-.set_attr<AnyCodegenStrategy>("AnyCodegenStrategy", kVariableDimensions)
-.set_attr<FShapeFunc>("FShapeFunc", ArangeShapeFunc);
+.set_attr<AnyCodegenStrategy>("AnyCodegenStrategy", kVariableDimensions);
 
 // repeat operator
 TVM_REGISTER_NODE_TYPE(RepeatAttrs);

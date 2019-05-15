@@ -23,6 +23,7 @@
  * \brief An interpreter for the Relay IR.
  */
 #include <tvm/packed_func_ext.h>
+#include <tvm/operation.h>
 #include <tvm/runtime/device_api.h>
 #include <tvm/relay/expr_functor.h>
 #include <tvm/relay/pattern_functor.h>
@@ -338,11 +339,115 @@ class Interpreter :
     return osh;
   }
 
+  Array<Shape> ComputeDynamicShape(Function func,
+                                   const Array<Value>& args) {
+    static auto fshape_func =
+        Op::GetAttr<FShapeFunc>("FShapeFunc");
+    DLContext cpu_ctx;
+    cpu_ctx.device_type = kDLCPU;
+    cpu_ctx.device_id = 0;
+
+    auto call = Downcast<Call>(func->body);
+    auto op = Downcast<Op>(call->op);
+    CHECK_GT(fshape_func.count(op), 0)
+        << "internal error, cannot find ShapeFunc for " << op->name;
+
+    size_t arg_len = 0;
+    for (size_t i = 0; i < args.size(); ++i) {
+      if (args[i].as<TensorValueNode>()) {
+        ++arg_len;
+      } else {
+        const auto* tvalue = args[i].as<TupleValueNode>();
+        arg_len += tvalue->fields.size();
+      }
+    }
+    size_t num_inputs = arg_len;
+    if (const auto* tuple_type = func->body->checked_type().as<TupleTypeNode>()) {
+      arg_len += tuple_type->fields.size();
+    } else {
+      CHECK(func->body->checked_type().as<TensorTypeNode>());
+      arg_len += 1;
+    }
+
+    std::vector<NDArray> args_cpu;
+    std::vector<TVMValue> values(arg_len);
+    std::vector<int> codes(arg_len);
+    TVMArgsSetter setter(values.data(), codes.data());
+    Array<tvm::Tensor> shape_func_in_tensors;
+    Array<Shape> shape_func_out_shapes;
+    Array<TensorValue> shape_func_outputs;
+
+    auto fset_input = [&](size_t i, Value val) {
+      const TensorValueNode* tv = val.as<TensorValueNode>();
+      CHECK(tv != nullptr) << "expect Tensor argument";
+      Shape shape;
+      for (auto dim : tv->data.Shape()) {
+        shape.push_back(tvm::Integer(dim));
+      }
+      shape_func_in_tensors.push_back(
+        tvm::placeholder(shape, TVMType2Type(tv->data->dtype)));
+      auto data = tv->data.CopyTo(cpu_ctx);
+      args_cpu.push_back(data);
+      setter(i, data);
+    };
+
+    int arg_counter = 0;
+    for (Value arg : args) {
+      if (arg.as<TensorValueNode>()) {
+        fset_input(arg_counter++,  arg);
+      } else {
+        const TupleValueNode* tuple = arg.as<TupleValueNode>();
+        CHECK(tuple != nullptr);
+        for (size_t i = 0; i < tuple->fields.size(); ++i) {
+          fset_input(arg_counter++, tuple->fields[i]);
+        }
+      }
+    }
+
+    auto fset_shape_output = [&](size_t i, Type val_type) {
+      const TensorTypeNode* rtype = val_type.as<TensorTypeNode>();
+      CHECK(rtype != nullptr);
+      int64_t ndim = rtype->shape.size();
+      shape_func_out_shapes.push_back({Integer(ndim)});
+      TensorValue out_tensor = TensorValueNode::make(
+        NDArray::Empty({ndim}, Type2TVMType(Int(64)), cpu_ctx));
+      shape_func_outputs.push_back(out_tensor);
+      setter(num_inputs + i, out_tensor->data);
+    };
+
+    auto ret_type = func->body->checked_type();
+    if (auto rtype = ret_type.as<TupleTypeNode>()) {
+      for (size_t i = 0; i < rtype->fields.size(); ++i) {
+        fset_shape_output(i, rtype->fields[i]);
+      }
+    } else {
+      auto tt = Downcast<TensorType>(ret_type);
+      fset_shape_output(0, tt);
+    }
+
+    // Compile and run shape func
+    auto shape_func_out_tensors = fshape_func[op](
+      call->attrs, shape_func_in_tensors, shape_func_out_shapes);
+    auto shape_func = CompileShapeFunc(shape_func_in_tensors, shape_func_out_tensors);
+    TVMRetValue rv;
+    shape_func.CallPacked(TVMArgs(values.data(), codes.data(), arg_len), &rv);
+
+    // Get output shapes
+    Array<Shape> out_shapes;
+    for (auto out_tensor : shape_func_outputs) {
+      int64_t* shape_data = reinterpret_cast<int64_t*>(out_tensor->data->data);
+      Shape out_shape;
+      for (int i = 0; i < out_tensor->data->ndim; ++i) {
+        out_shape.push_back(tvm::Integer(shape_data[i]));
+      }
+      out_shapes.push_back(out_shape);
+    }
+    return out_shapes;
+  }
+
   Value InvokePrimitiveOp(Function func,
                           const Array<Value>& args) {
     std::cout << "========================================================\n";
-    static auto fshape_func =
-        Op::GetAttr<FShapeFunc>("FShapeFunc");
 
     auto call_node = func->body.as<CallNode>();
 
@@ -380,7 +485,6 @@ class Interpreter :
     std::vector<TVMValue> values(arg_len);
     std::vector<int> codes(arg_len);
     TVMArgsSetter setter(values.data(), codes.data());
-    Array<Input> shape_func_args;
     Array<Shape> input_shapes;
 
     auto fset_input = [&](size_t i, Value val) {
@@ -391,7 +495,6 @@ class Interpreter :
         shape.push_back(tvm::Integer(dim));
       }
       std::cout << "set input: i=" << i << " type= " << shape << std::endl;
-      shape_func_args.push_back(InputNode::make(tv->data));
       input_shapes.push_back(shape);
       setter(i, tv->data);
       DLContext arg_ctx = tv->data->ctx;
@@ -438,7 +541,6 @@ class Interpreter :
     };
 
     Array<Shape> out_shapes;
-
     auto ret_type = func->body->checked_type();
     std::cout << "ret_type: " << ret_type << std::endl;
     auto is_dyn = IsDynamic(ret_type);
@@ -446,12 +548,7 @@ class Interpreter :
     if (is_dyn) {
       std::cout << "IsDynamic!!" << std::endl;
       CHECK(func->IsPrimitive());
-      auto call = Downcast<Call>(func->body);
-      auto op = Downcast<Op>(call->op);
-      CHECK_GT(fshape_func.count(op), 0) 
-          << "internal error, cannot find ShapeFunc for " << op->name;
-      auto shape_func = fshape_func[op];
-      out_shapes = shape_func(shape_func_args);
+      out_shapes = ComputeDynamicShape(func, args);
     }
 
     PackedFunc packed_func = engine_->JIT(CCacheKeyNode::make(func, input_shapes, target_));

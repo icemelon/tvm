@@ -200,6 +200,11 @@ def register_gradient(op_name, fgradient=None, level=10):
     """
     return register(op_name, "FPrimalGradient", fgradient, level)
 
+def register_shape_func(op_name, shape_func=None, level=10):
+    """Register operator shapefunc for an op.
+    """
+    return register(op_name, "FShapeFunc", shape_func, level)
+
 
 _init_api("relay.op", __name__)
 
