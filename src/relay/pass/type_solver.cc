@@ -31,12 +31,6 @@ namespace tvm {
 namespace relay {
 
 bool HasAny(const Type& ty) {
-  if (ty.as<IncompleteTypeNode>()) {
-    return false;
-  }
-  if (ty.as<TypeVarNode>() || ty.as<TypeCallNode>()) {
-    return false;
-  }
   if (auto tty = ty.as<TensorTypeNode>()) {
     for (auto dim : tty->shape) {
       if (dim.same_as(Any())) {
@@ -45,12 +39,13 @@ bool HasAny(const Type& ty) {
     }
     return false;
   }
-  auto tuple_ty = ty.as<TupleTypeNode>();
-  CHECK(tuple_ty);
-  for (auto field : tuple_ty->fields) {
-    if (HasAny(field)) {
-      return true;
+  if (auto tuple_ty = ty.as<TupleTypeNode>()) {
+    for (auto field : tuple_ty->fields) {
+      if (HasAny(field)) {
+        return true;
+      }
     }
+    return false;
   }
   return false;
 }
@@ -58,10 +53,6 @@ bool HasAny(const Type& ty) {
 bool LiftedAny(const Type& dst, const Type& src) {
   if (src.as<IncompleteTypeNode>()) {
     return HasAny(dst);
-  }
-  if (src.as<TypeVarNode>() || dst.as<TypeVarNode>() ||
-      src.as<TypeCallNode>() || dst.as<TypeCallNode>()) {
-    return false;
   }
   if (auto src_ty = src.as<TensorTypeNode>()) {
     auto dst_ty = dst.as<TensorTypeNode>();
@@ -73,14 +64,15 @@ bool LiftedAny(const Type& dst, const Type& src) {
     }
     return false;
   }
-  auto src_ty = src.as<TupleTypeNode>();
-  auto dst_ty = dst.as<TupleTypeNode>();
-  CHECK(src_ty);
-  CHECK(dst_ty);
-  for (size_t i = 0; i < src_ty->fields.size(); ++i) {
-    if (LiftedAny(dst_ty->fields[i], src_ty->fields[i])) {
-      return true;
+  if (auto src_ty = src.as<TupleTypeNode>()) {
+    auto dst_ty = dst.as<TupleTypeNode>();
+    CHECK(dst_ty);
+    for (size_t i = 0; i < src_ty->fields.size(); ++i) {
+      if (LiftedAny(dst_ty->fields[i], src_ty->fields[i])) {
+        return true;
+      }
     }
+    return false;
   }
   return false;
 }
