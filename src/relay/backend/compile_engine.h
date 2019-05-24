@@ -236,6 +236,8 @@ inline bool CCacheKeyNode::Equal(
       AlphaEqual(this->source_func, other->source_func);
 }
 
+LoweredFunc LowerShapeFunc(Array<tvm::Tensor> inputs, Array<tvm::Tensor> outputs);
+
 PackedFunc CompileShapeFunc(Array<tvm::Tensor> inputs, Array<tvm::Tensor> outputs);
 
 }  // namespace relay

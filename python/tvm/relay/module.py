@@ -22,6 +22,7 @@ from . import _make
 from . import _module
 from . import expr as _expr
 from . import ty as _ty
+from . import _ir_pass
 
 @register_relay_node
 class Module(RelayNode):
@@ -83,7 +84,7 @@ class Module(RelayNode):
             # TODO(@jroesch): Port this logic to C++.
             if not isinstance(val, _expr.Function):
                 if isinstance(val, _expr.GlobalVar):
-                    val = ir_pass.eta_expand(val, self)
+                    val = _ir_pass.eta_expand(val, self)
                 else:
                     val = _expr.Function([], val)
 

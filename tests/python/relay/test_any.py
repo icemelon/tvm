@@ -40,11 +40,13 @@ def test_dyn_arange():
     y0 = relay.shape_of(x)
     y1 = relay.take(y0, relay.const(0, 'int32'))
     y2 = relay.op.arange(y1)
-    ex = relay.create_executor()
     f = relay.Function([x], y2, type_params=[m, n, k])
     data = np.random.rand(10, 5, 3).astype('float32')
-    result = ex.evaluate(f)(data)
-    np.testing.assert_allclose(result.asnumpy(), np.array(range(10)))
+    for kind in ["vm", "debug"]:
+        mod = relay.module.Module()
+        ex = relay.create_executor(kind, mod=mod)
+        result = ex.evaluate(f)(data)
+        np.testing.assert_allclose(result.asnumpy(), np.array(range(10)))
 
 def test_dyn_concat():
     init = relay.op.reshape(relay.const(0.0), (1,))
@@ -79,9 +81,11 @@ def test_dyn_concat():
     mod[mod.entry_func] = relay.Function([], ret)
     print(relay.ir_pass.infer_type(mod[mod.entry_func], mod=mod))
 
-    ex = relay.create_executor("debug", mod=mod, ctx=tvm.cpu(), target="llvm")
-    result = ex.evaluate(mod.entry_func)()
-    print(result)
+    # vm fails because ToANF pass doesn't apply to all global var in the module
+    for kind in ["debug"]:
+        ex = relay.create_executor(kind, mod=mod, ctx=tvm.cpu(), target="llvm")
+        result = ex.evaluate(mod.entry_func)()
+        print(result)
     # import pdb; pdb.set_trace()
     # np.testing.assert_allclose(result.asnumpy(), np.array(range(10)))
 

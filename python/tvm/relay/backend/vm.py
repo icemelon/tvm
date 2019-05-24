@@ -35,7 +35,7 @@ def optimize(expr, mod=None):
     ck_expr = ir_pass.infer_type(expr, mod=mod)
     simplified_expr = ir_pass.simplify_inference(ck_expr)
     simplified_expr = ir_pass.infer_type(simplified_expr, mod=mod)
-    fused_expr = ir_pass.fuse_ops(simplified_expr, mod=mod)
+    fused_expr = ir_pass.fuse_ops(simplified_expr, mod=mod, opt_level=0)
     ck_fused = ir_pass.infer_type(fused_expr, mod=mod)
     return ck_fused
 

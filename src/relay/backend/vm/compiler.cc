@@ -27,6 +27,7 @@
 #include <tvm/relay/expr_functor.h>
 #include <tvm/relay/interpreter.h>
 #include <tvm/logging.h>
+#include <tvm/operation.h>
 #include <tvm/relay/pass.h>
 #include <tvm/runtime/vm.h>
 #include <iostream>
@@ -47,6 +48,26 @@ using namespace tvm::runtime::vm;
 bool IsClosure(const Function& func);
 Module LambdaLift(const Module& module);
 Module InlinePrimitives(const Module& module);
+
+bool IsConstantShape(const Type& ty) {
+  if (auto tty = ty.as<TensorTypeNode>()) {
+    for (auto sh : tty->shape) {
+      if (sh.as<IntImm>() == nullptr) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (auto tty = ty.as<TupleTypeNode>()) {
+    for (auto field : tty->fields) {
+      if (!IsConstantShape(field)) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return true;
+}
 
 template <typename T, typename U>
 using NodeMap = std::unordered_map<T, U, NodeHash, NodeEqual>;
@@ -94,60 +115,11 @@ struct ConstantPool : ExprVisitor {
     }
   }
 
-  void AddConstantTensorShape(TensorType expr, NDArray value) {
-    auto it = this->const_tensor_shape_map.find(expr);
-    if (it == this->const_tensor_shape_map.end()) {
-      this->const_tensor_shape_map.insert({expr, std::make_pair(index++, value)});
-    }
-  }
-
   void VisitExpr_(const ConstantNode* const_node) {
     auto konst = GetRef<Constant>(const_node);
     auto it = this->const_map.find(konst);
     if (it == this->const_map.end()) {
       this->const_map.insert({konst, index++});
-    }
-  }
-
-  NDArray GetTensorConstant(const TensorTypeNode* ttype) {
-    std::vector<int64_t> shapes;
-    for (auto sh : ttype->shape) {
-      shapes.push_back(Downcast<tvm::Integer>(sh)->value);
-    }
-    int64_t s = shapes.size();
-    DLContext cpu_ctx;
-    cpu_ctx.device_type = kDLCPU;
-    cpu_ctx.device_id = 0;
-    auto shape_tensor = NDArray::Empty({s}, Type2TVMType(Int(64)), cpu_ctx);
-    int64_t* dims = static_cast<int64_t*>(shape_tensor->data);
-    for (size_t i = 0; i < shapes.size(); ++i) {
-      dims[i] = shapes[i];
-    }
-    return shape_tensor;
-  }
-
-  void VisitExpr_(const CallNode* call_node) {
-    for (auto arg : call_node->args) {
-      this->VisitExpr(arg);
-    }
-
-    Expr op = call_node->op;
-    auto func_node = op.as<FunctionNode>();
-    if (func_node) {
-      auto ret_type = call_node->checked_type();
-      if (const TensorTypeNode* ttype = ret_type.as<TensorTypeNode>()) {
-        auto shape = GetTensorConstant(ttype);
-        auto tensor_type = GetRef<TensorType>(ttype);
-        AddConstantTensorShape(tensor_type, shape);
-      } else if (const TupleTypeNode* ttype = ret_type.as<TupleTypeNode>()) {
-        for (size_t i = 0; i < ttype->fields.size(); ++i) {
-          auto f = ttype->fields[i];
-          auto f_type = f.as<TensorTypeNode>();
-          auto shape = GetTensorConstant(f_type);
-          auto tensor_type = GetRef<TensorType>(f_type);
-          AddConstantTensorShape(tensor_type, shape);
-        }
-      }
     }
   }
 };
@@ -200,6 +172,7 @@ struct VMCompiler : ExprFunctor<void(const Expr& expr)> {
     switch (instr.op) {
       case Opcode::AllocDatatype:
       case Opcode::AllocTensor:
+      case Opcode::AllocTensorReg:
       case Opcode::GetField:
       case Opcode::LoadConst:
       case Opcode::Select:
@@ -258,9 +231,9 @@ struct VMCompiler : ExprFunctor<void(const Expr& expr)> {
   }
 
   void VisitExpr_(const LetNode* let_node) {
-    DLOG(INFO) << let_node->value << std::endl;
+    DLOG(INFO) << let_node->value;
     this->VisitExpr(let_node->value);
-    DLOG(INFO) << this->last_register << std::endl;
+    DLOG(INFO) << this->last_register;
     var_register_map.insert({let_node->var, this->last_register});
     this->VisitExpr(let_node->body);
   }
@@ -319,26 +292,99 @@ struct VMCompiler : ExprFunctor<void(const Expr& expr)> {
     Emit(Instruction::Select(cond_register, true_register, false_register, NewRegister()));
   }
 
-  Instruction AllocTensorFromType(const TensorTypeNode* ttype) {
-    DataType dtype = ttype->dtype;
-    TVMType dltype = Type2TVMType(dtype);
+  size_t EmitShapeFunc(const Type& ret_type, const Function& func, std::vector<Index>* args_registers) {
+    auto call_node = func->body.as<CallNode>();
+    auto op = Downcast<Op>(call_node->op);
+    auto args = call_node->args;
 
-    auto tensor_type = GetRef<TensorType>(ttype);
-    auto it = this->context->const_tensor_shape_map.find(tensor_type);
-    if (it == this->context->const_tensor_shape_map.end()) {
-      DLOG(INFO) << "Can not find constant shape for " << tensor_type;
+    static auto fshape_func = Op::GetAttr<FShapeFunc>("FShapeFunc");
+    CHECK_GT(fshape_func.count(op), 0) << "internal error, cannot find ShapeFunc for " << op->name;
+
+    // Prepare input and output shapes for shape func
+    Array<tvm::Tensor> shape_func_in_tensors;
+    Array<Shape> shape_func_out_shapes;
+    std::vector<DataType> out_types;
+    for (auto arg : args) {
+      auto ty = arg->checked_type().as<TensorTypeNode>();
+      shape_func_in_tensors.push_back(tvm::placeholder(ty->shape, ty->dtype));
+    }
+    if (const auto* tuple_type = ret_type.as<TupleTypeNode>()) {
+      for (auto field : tuple_type->fields) {
+        const TensorTypeNode* tty = field.as<TensorTypeNode>();
+        CHECK(tty);
+        int64_t ndim = tty->shape.size();
+        shape_func_out_shapes.push_back({Integer(ndim)});
+        out_types.push_back(tty->dtype);
+      }
     } else {
-      Emit(Instruction::LoadConst(it->second.first, NewRegister()));
+      auto tty = ret_type.as<TensorTypeNode>();
+      CHECK(tty);
+      int64_t ndim = tty->shape.size();
+      shape_func_out_shapes.push_back({Integer(ndim)});
+      out_types.push_back(tty->dtype);
     }
 
-    return Instruction::AllocTensor(last_register, dltype, NewRegister());
+    // Lower the shape func
+    auto shape_func_out_tensors = fshape_func[op](call_node->attrs, shape_func_in_tensors, shape_func_out_shapes);
+    auto shape_func = LowerShapeFunc(shape_func_in_tensors, shape_func_out_tensors);
+    int func_idx = -1;
+    if (seen_funcs.count(shape_func) > 0) {
+      func_idx = seen_funcs[shape_func];
+    } else {
+      func_idx = this->context->lowered_funcs.size();
+      this->context->lowered_funcs.push_back(shape_func);
+      seen_funcs[shape_func] = func_idx;
+    }
+
+    // Emit instructions
+    std::vector<Index> shape_func_args(*args_registers);
+    for (auto tensor : shape_func_out_tensors) {
+      std::vector<uint64_t> shape;
+      for (auto dim : tensor->shape) {
+        shape.push_back(Downcast<Integer>(dim)->value);
+      }
+      Emit(Instruction::AllocTensor(shape, Type2TVMType(tensor->dtype), NewRegister()));
+      shape_func_args.push_back(last_register);
+    }
+    size_t num_inputs = shape_func_in_tensors.size();
+    size_t num_outputs = shape_func_out_tensors.size();
+    size_t arity = shape_func_args.size();
+    Emit(Instruction::InvokePacked(func_idx, arity, num_outputs, shape_func_args));
+    for (size_t i = 0; i < num_outputs; ++i) {
+      Emit(Instruction::AllocTensorReg(shape_func_args[num_inputs + i], Type2TVMType(out_types[i]), NewRegister()));
+      args_registers->push_back(last_register);
+    }
+    return num_outputs;
   }
 
-  void EmitInvokePrimitive(const Function& func,
-                           const std::vector<Index>& args_registers,
+  size_t AllocReturnTensors(const Type& ret_type, const Function& func, std::vector<Index>* args_registers) {
+    if (IsConstantShape(ret_type)) {
+      size_t ret_num = 0;
+      auto alloc_tensor = [&](const TensorTypeNode* ttype) {
+        const TensorType& tensor_type = GetRef<TensorType>(ttype);
+        std::vector<uint64_t> shape;
+        for (auto dim : tensor_type->shape) {
+          shape.push_back(Downcast<tvm::Integer>(dim)->value);
+        }
+        Emit(Instruction::AllocTensor(shape, Type2TVMType(tensor_type->dtype), NewRegister()));
+        args_registers->push_back(last_register);
+        ++ret_num;
+      };
+      if (const TensorTypeNode* ttype = ret_type.as<TensorTypeNode>()) {
+        alloc_tensor(ttype);
+      } else if (const TupleTypeNode* ttype = ret_type.as<TupleTypeNode>()) {
+        for (auto field : ttype->fields) {
+          alloc_tensor(field.as<TensorTypeNode>());
+        }
+      }
+      return ret_num;
+    }
+    return EmitShapeFunc(ret_type, func, args_registers);
+  }
+
+  void EmitInvokePrimitive(const Function& func, std::vector<Index> args_registers,
                            const Type& ret_type) {
     std::vector<Index> unpacked_arg_regs;
-    std::vector<Instruction> allocs;
 
     // Arity calculation must flatten tuples.
     size_t arity = 0;
@@ -364,31 +410,8 @@ struct VMCompiler : ExprFunctor<void(const Expr& expr)> {
       }
     }
 
-    size_t return_val_count = 0;
-    if (const TensorTypeNode* ttype = ret_type.as<TensorTypeNode>()) {
-      // Allocate space for the return tensor.
-      auto alloc = AllocTensorFromType(ttype);
-      allocs.push_back(alloc);
-      return_val_count = 1;
-    } else if (const TupleTypeNode* ttype = ret_type.as<TupleTypeNode>()) {
-      std::vector<Index> fields_registers;
-
-      for (size_t i = 0; i < ttype->fields.size(); ++i) {
-        auto f = ttype->fields[i];
-        auto f_type = f.as<TensorTypeNode>();
-        allocs.push_back(AllocTensorFromType(f_type));
-        fields_registers.push_back(allocs.back().dst);
-      }
-      return_val_count = ttype->fields.size();
-    } else {
-      LOG(FATAL) << "Unsupported return value type";
-    }
-
+    size_t return_val_count = AllocReturnTensors(ret_type, func, &args_registers);
     arity += return_val_count;
-    for (auto& alloc : allocs) {
-      Emit(alloc);
-      unpacked_arg_regs.push_back(alloc.dst);
-    }
 
     // Next generate the invoke instruction.
     CHECK(func->IsPrimitive());
@@ -529,6 +552,7 @@ void PopulatePackedFuncMap(const std::vector<LoweredFunc>& lowered_funcs,
   runtime::Module mod;
   if (lowered_funcs.size() > 0) {
     // TODO(@jroesch): we need to read target from build config
+    // TODO(@icemelon): we need to always use llvm target for shape func
     Target target = Target::Create("llvm");
     if (const auto* f = runtime::Registry::Get("relay.backend.build")) {
       mod = (*f)(tvm::Array<LoweredFunc>(lowered_funcs.begin(), lowered_funcs.end()), target);
