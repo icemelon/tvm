@@ -109,7 +109,6 @@ class BuildModule(object):
         # Setup the build configurations passed in through `with build_config`.
         self._setup_build_config(params)
         # Build the function
-        print(func)
         self._build(func, target, target_host)
         # Get artifacts
         graph_json = self.get_json()
