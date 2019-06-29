@@ -91,6 +91,7 @@ class TaskExtractEnv:
             topi.nn.bitserial_conv2d_nhwc: "topi_nn_bitserial_conv2d_nhwc",
             topi.nn.bitserial_dense: "topi_nn_bitserial_dense",
             topi.nn.deformable_conv2d_nchw: "topi_nn_deformable_conv2d_nchw",
+            topi.nn.batch_matmul: "topi_nn_batch_matmul",
         }
 
         self.topi_to_schedule = {
@@ -107,6 +108,7 @@ class TaskExtractEnv:
             topi.nn.bitserial_conv2d_nhwc: [topi.generic.schedule_bitserial_conv2d_nhwc],
             topi.nn.bitserial_dense: [topi.generic.schedule_bitserial_dense],
             topi.nn.deformable_conv2d_nchw: [topi.generic.schedule_deformable_conv2d_nchw],
+            topi.nn.batch_matmul: [topi.generic.schedule_batch_matmul],
         }
 
         # function reflection for tracing
@@ -122,6 +124,7 @@ class TaskExtractEnv:
             topi.nn.bitserial_conv2d_nhwc:  lambda x: setattr(topi.nn, 'bitserial_conv2d_nhwc', x),
             topi.nn.bitserial_dense:        lambda x: setattr(topi.nn, 'bitserial_dense', x),
             topi.nn.deformable_conv2d_nchw: lambda x: setattr(topi.nn, 'deformable_conv2d_nchw', x),
+            topi.nn.batch_matmul:           lambda x: setattr(topi.nn, 'batch_matmul', x),
         }
 
         self.allow_duplicate = allow_duplicate
@@ -265,6 +268,15 @@ class TaskExtractEnv:
             C = topi.nn.conv2d_NCHWc(*args, **kwargs)
             s = topi.generic.schedule_conv2d_NCHWc([C])
             return s, [A, W, C]
+
+        @register("topi_nn_batch_matmul")
+        def _topi_nn_batch_matmul(*args, **kwargs):
+            assert not kwargs, "Do not support kwargs in template function call"
+            args = deserialize_args(args)
+            data1, data2 = args
+            C = topi.nn.batch_matmul(*args, **kwargs)
+            s = topi.generic.schedule_batch_matmul([C])
+            return s, [data1, data2, C]
 
     def reset(self, wanted_topi_funcs):
         """Reset task collections
