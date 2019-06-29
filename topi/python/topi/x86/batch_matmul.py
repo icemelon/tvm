@@ -19,25 +19,35 @@
 from __future__ import absolute_import as _abs
 import tvm
 from tvm import autotvm
-from tvm.autotvm.task.space import SplitEntity
 from tvm.contrib import cblas
+from topi.nn import batch_matmul, batch_matmul_default
+from tvm.autotvm.task.space import SplitEntity, OtherOptionEntity
 from .. import generic, nn
 from ..util import traverse_inline, get_const_tuple, get_max_power2_factor
 
+def _default_batch_matmul_pack_config(cfg, M, N, K):
+    tile_y = get_max_power2_factor(M, 8)
+    tile_x = get_max_power2_factor(N, 8)
+    tile_k = get_max_power2_factor(N, 16)
 
-@autotvm.register_topi_compute(nn.batch_matmul, "cpu", "direct")
-def _declaration_batch_matmul_nopack(cfg, x, y):
+    cfg["tile_y"] = SplitEntity([M // tile_y, tile_y])
+    cfg["tile_x"] = SplitEntity([N // tile_x, tile_x])
+    cfg["tile_k"] = SplitEntity([K // tile_k, tile_k])
+    cfg["auto_unroll_max_step"] = OtherOptionEntity(16)
+
+@batch_matmul.register(["cpu"])
+def batch_matmul_x86(x, y):
     """Computes batch matrix multiplication of `x` and `y` when `x` and `y` are
     data in batch.
 
     Parameters
     ----------
-    cfg : ConfigSpace
-        Autotvm tuning space config file
     x : tvm.Tensor
         3-D with shape [batch, M, K]
+
     y : tvm.Tensor
         3-D with shape [batch, N, K]
+
     Returns
     -------
     output : tvm.Tensor
@@ -46,37 +56,39 @@ def _declaration_batch_matmul_nopack(cfg, x, y):
     target = tvm.target.current_target()
     if "cblas" in target.libs:
         return cblas.batch_matmul(x, y, False, True)
+    return batch_matmul_default(x, y)
 
-    assert len(x.shape) == 3 and len(
-        y.shape) == 3, "only support 3-dim batch_matmul"
-    XB, M, XK = get_const_tuple(x.shape)
-    YB, N, YK = get_const_tuple(y.shape)
-    assert XB == YB, "batch dimension doesn't match"
-    assert XK == YK, "shapes of x and y is inconsistant"
-    B = XB
-    K = XK
-    if cfg.is_fallback:
-        _default_batch_matmul_nopack_config(cfg, M, N, K)
-
+@autotvm.register_topi_compute(nn.batch_matmul, "cpu", "direct")
+def _decl(cfg, x, y):
+    assert len(x.shape) == 3 and len(y.shape) == 3, "only support 3-dim batch_matmul"
+    x_shape = get_const_tuple(x.shape)
+    y_shape = get_const_tuple(y.shape)
+    assert x_shape[0] == y_shape[0], "batch dimension doesn't match"
+    assert x_shape[2] == y_shape[2], "shapes of x and y is inconsistant"
+    batch, M, K = x_shape
+    N = y_shape[1]
+    cfg.define_split("tile_y", M, num_outputs=2,
+                     filter=lambda item: item.size[-1] <= 64)
+    cfg.define_split("tile_x", N, num_outputs=2,
+                     filter=lambda item: item.size[-1] <= 64)
+    cfg.define_split("tile_k", K, num_outputs=2,
+                     filter=lambda item: item.size[-1] <= 64)
+    cfg.define_knob("auto_unroll_max_step", [0, 16, 32])
     k = tvm.reduce_axis((0, K), name='k')
-    C = tvm.compute(
-        (B, M, N),
-        lambda b, i, j: tvm.sum(x[b, i, k] * y[b, j, k], axis=k),
-        tag='batch_matmul')
-    return C
+    return tvm.compute((batch, M, N),
+                       lambda b, i, j: tvm.sum(x[b, i, k] * y[b, j, k], axis=k),
+                       tag='batch_matmul')
 
 
-@autotvm.register_topi_schedule(generic.schedule_batch_matmul, "cpu", "direct")
+@autotvm.register_topi_schedule(generic.schedule_batch_matmul, 'cpu', ['direct'])
 def schedule_batch_matmul(cfg, outs):
     """Schedule for batch_matmul
 
     Parameters
     ----------
-    cfg : ConfigSpace
-        AutoTVM tuning space config file.
-    outs : Array of Tensor
-        The computation graph description of batch_matmul
-        in the format of an array of tensors.
+    outs: Array of Tensor
+          The computation graph description of batch_matmul
+          in the format of an array of tensors.
 
     Returns
     -------
@@ -92,20 +104,16 @@ def schedule_batch_matmul(cfg, outs):
     def _callback(op):
         if "batch_matmul" in op.tag:
             C = op.output(0)
-            A, B = s[C].op.input_tensors
-            _, M, K = get_const_tuple(A.shape)
-            _, _, N = get_const_tuple(C.shape)
+            A = s[C].op.input_tensors[0]
+            _, M, N = get_const_tuple(C.shape)
+            _, _, K = get_const_tuple(A.shape)
 
-            # create tuning space
-            cfg.define_split("tile_y", M, num_outputs=2)
-            cfg.define_split("tile_x", N, num_outputs=2)
-            cfg.define_split("tile_k", K, num_outputs=2)
+            if cfg.is_fallback:
+                _default_batch_matmul_pack_config(cfg, M, N, K)
 
             k, = s[C].op.reduce_axis
-
             ko, ki = cfg["tile_k"].apply(s, C, k)
             CC = s.rfactor(C, ki)
-
             b, y, x = s[C].op.axis
             yo, yi = cfg["tile_y"].apply(s, C, y)
             xo, xi = cfg["tile_x"].apply(s, C, x)
@@ -118,15 +126,7 @@ def schedule_batch_matmul(cfg, outs):
             _, _, y, x = s[CC].op.axis
             s[CC].fuse(y, x)
             s[CC].vectorize(s[CC].op.axis[0])
-            s[C].pragma(bxyo, 'auto_unroll_max_step', 16)
+            s[C].pragma(bxyo, 'auto_unroll_max_step', cfg['auto_unroll_max_step'].val)
 
     traverse_inline(s, outs[0].op, _callback)
     return s
-
-
-def _default_batch_matmul_nopack_config(cfg, M, N, K):
-    cfg["tile_k"] = SplitEntity([K // 16, 16])
-    x_bn = get_max_power2_factor(N, 8)
-    cfg["tile_x"] = SplitEntity([N // x_bn, x_bn])
-    y_bn = get_max_power2_factor(M, 8)
-    cfg["tile_y"] = SplitEntity([M // y_bn, y_bn])

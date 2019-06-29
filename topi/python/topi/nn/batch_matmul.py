@@ -49,7 +49,7 @@ def batch_matmul_default(x, y):
                        lambda b, i, j: tvm.sum(x[b, i, k] * y[b, j, k], axis=k),
                        tag='batch_matmul')
 
-@tvm.target.generic_func
+@tvm.target.override_native_generic_func("batch_matmul")
 def batch_matmul(x, y):
     """Computes batch matrix multiplication of `x` and `y` when `x` and `y` are
     data in batch.
