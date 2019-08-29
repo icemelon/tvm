@@ -49,7 +49,9 @@ def _update_target(target):
     return tgts
 
 def _convert(arg, cargs):
-    if isinstance(arg, (np.ndarray, tvm.nd.NDArray)):
+    if isinstance(arg, _obj.Object):
+        cargs.append(arg)
+    elif isinstance(arg, (np.ndarray, tvm.nd.NDArray)):
         cargs.append(_obj.tensor_object(arg))
     elif isinstance(arg, (tuple, list)):
         field_args = []
@@ -57,7 +59,7 @@ def _convert(arg, cargs):
             _convert(field, field_args)
         cargs.append(_obj.tuple_object(field_args))
     else:
-        raise "unsupported type"
+        raise TypeError("Unsupported type: %s" % type(arg))
 
 def convert(args):
     cargs = []

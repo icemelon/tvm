@@ -55,6 +55,11 @@ class TensorObject(Object):
         """
         return self.data.asnumpy()
 
+    def __str__(self):
+        return str(self.data.asnumpy())
+
+    __repr__ = __str__
+
 
 @register_object
 class DatatypeObject(Object):
@@ -76,10 +81,17 @@ class DatatypeObject(Object):
         """
         super(DatatypeObject, self).__init__(handle)
         self.tag = _vmobj.GetDatatypeTag(self)
+        self._fields = None
+
+    @property
+    def fields(self):
+        if self._fields is not None:
+            return self._fields
+        self._fields = []
         num_fields = _vmobj.GetDatatypeNumberOfFields(self)
-        self.fields = []
         for i in range(num_fields):
-            self.fields.append(_vmobj.GetDatatypeFields(self, i))
+            self._fields.append(_vmobj.GetDatatypeFields(self, i))
+        return self._fields
 
     def __getitem__(self, idx):
         return self.fields[idx]
