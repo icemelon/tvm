@@ -187,6 +187,12 @@ class VMCompiler(object):
         return VirtualMachine(self._get_vm())
 
 
+def compile(mod, target=None, target_host=None, params=None):
+    # TODO: need to handle params as well
+    compiler = VMCompiler()
+    return compiler.compile(mod, target, target_host)
+
+
 class VMExecutor(Executor):
     """
     An implementation of the executor interface for

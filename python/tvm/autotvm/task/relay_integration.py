@@ -32,7 +32,7 @@ logger = logging.getLogger('autotvm')
 
 
 # TODO(moreau89) find a more elegant way to build for VTAs
-def _build(func,
+def _build(mod,
            target,
            target_host,
            params):
@@ -45,11 +45,11 @@ def _build(func,
         with relay.build_config(opt_level=3, disabled_pass={"AlterOpLayout"}):
             import vta
             with vta.build_config():
-                return relay.build(func, target, target_host, params)
+                return relay.build(mod["main"], target, target_host, params)
     # default case
-    return relay.build(func, target, target_host, params)
+    return relay.vm.compile(mod, target, target_host, params)
 
-def extract_from_program(func, params, ops, target, target_host=None):
+def extract_from_program(input, params, ops, target, target_host=None):
     """ Extract tuning tasks from a relay program.
 
     This function collects tuning tasks by building the program
@@ -97,6 +97,13 @@ def extract_from_program(func, params, ops, target, target_host=None):
         else:
             warnings.warn("Op %s is not tunable, ignored" % op_name)
 
+    if isinstance(input, relay.Module):
+        mod = input
+    elif isinstance(input, relay.Function):
+        mod = relay.Module.from_expr(input)
+    else:
+        raise TypeError("Unknown input type: %s" % type(input))
+
     # run compiler to collect all TOPI calls during compilation
     env.reset(topi_funcs)
     with env:
@@ -106,7 +113,6 @@ def extract_from_program(func, params, ops, target, target_host=None):
 
         relay.backend.compile_engine.get().clear()
         # wrap build call in thread to avoid multiprocessing problems
-        mod = relay.Module.from_expr(func)
         build_thread = threading.Thread(target=_build,
                                         args=(mod,
                                               target,
