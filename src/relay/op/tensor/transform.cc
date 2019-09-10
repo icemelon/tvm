@@ -1514,7 +1514,7 @@ Examples::
 .set_support_level(4)
 .add_type_rel("Where", WhereRel)
 .set_attr<FTVMCompute>("FTVMCompute", WhereCompute)
-.set_attr<TOpPattern>("TOpPattern", kBroadcast);
+.set_attr<TOpPattern>("TOpPattern", kOpaque);
 
 
 // Squeeze
