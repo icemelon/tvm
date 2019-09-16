@@ -847,11 +847,11 @@ void VMCompiler::Compile(const Module& mod_ref,
 Module VMCompiler::OptimizeModule(const Module& mod) {
   // TODO(@icemelon9): check number of targets and build config, add more optimization pass
   transform::Sequential seq({transform::SimplifyInference(),
-                             transform::InlinePrimitives(),
                              // TODO(@wweic): FuseOps pass currently don't handle Let
                              // For now, we put FuseOps before ToANormalForm to enable it
                              transform::FuseOps(),
                              transform::ToANormalForm(),
+                             transform::InlinePrimitives(),
                              transform::LambdaLift(),
                              transform::InlinePrimitives()});
   auto pass_ctx = transform::PassContext::Create();
