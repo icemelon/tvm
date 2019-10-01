@@ -594,7 +594,7 @@ def LambdaLift():
     return _transform.LambdaLift()
 
 
-def PrintIR():
+def PrintIR(show_meta_data=True):
     """
     Print the IR for a module to help debugging.
 
@@ -603,7 +603,7 @@ def PrintIR():
     ret : tvm.relay.Pass
         The registered pass that prints the module IR.
     """
-    return _transform.PrintIR()
+    return _transform.PrintIR(show_meta_data)
 
 
 def gradient(expr, mod=None, mode='higher_order'):
