@@ -115,6 +115,9 @@ set(USE_BLAS none)
 # set(USE_MKL_PATH <path to venv or site-packages directory>) if using `pip install mkl`
 set(USE_MKL_PATH none)
 
+# Whether use MKL DNN library
+set(USE_MKL_DNN OFF)
+
 # Whether use OpenMP thread pool
 set(USE_OMP OFF)
 
