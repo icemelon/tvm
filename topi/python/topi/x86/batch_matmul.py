@@ -54,8 +54,8 @@ def batch_matmul_x86(x, y):
         3-D with shape [batch, M, N]
     """
     target = tvm.target.current_target()
-    if "cblas" in target.libs:
-        return cblas.batch_matmul(x, y, False, True)
+    # if "cblas" in target.libs:
+    #     return cblas.batch_matmul(x, y, False, True)
     return batch_matmul_default(x, y)
 
 @autotvm.register_topi_compute(nn.batch_matmul, "cpu", "direct")
@@ -96,8 +96,8 @@ def schedule_batch_matmul(cfg, outs):
         The computation schedule for the op.
     """
     target = tvm.target.current_target()
-    if "cblas" in target.libs:
-        return generic.schedule_extern(outs)
+    # if "cblas" in target.libs:
+    #     return generic.schedule_extern(outs)
 
     s = tvm.create_schedule([x.op for x in outs])
 
