@@ -61,7 +61,7 @@ from . import datatype
 from .api import *
 from .intrin import *
 from .tensor_intrin import decl_tensor_intrin
-from .schedule import create_schedule
+from .schedule import create_schedule, current_specialization
 from .build_module import build, lower, build_config
 from .tag import tag_scope
 

@@ -351,7 +351,7 @@ def tune_and_evaluate(tuning_opt):
     mod = relay.Module.from_expr(relay_prog)
     tasks = autotvm.task.extract_from_program(mod,
                                               params=params,
-                                              ops=(tvm.relay.op.nn.conv2d,),
+                                              ops=(relay.op.get("nn.conv2d"),),
                                               target=target,
                                               target_host=env.target_host)
 

@@ -21,7 +21,6 @@ import tvm
 from .. import generic, tag
 from ..util import traverse_inline
 
-@generic.schedule_conv3d_ndhwc.register("cpu")
 def schedule_conv3d_ndhwc(outs):
     """TOPI schedule callback for conv3d
 
