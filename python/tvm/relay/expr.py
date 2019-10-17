@@ -315,6 +315,12 @@ class Function(Expr):
 
         return _expr.FunctionSetParams(self, params)
 
+    def is_primitive(self):
+        return int(self.get_attribute("Primitive")) == 1
+
+    def get_attribute(self, name):
+        return _expr.FunctionGetAttr(self, name)
+
     def set_attribute(self, name, ref):
         return _expr.FunctionSetAttr(self, name, ref)
 

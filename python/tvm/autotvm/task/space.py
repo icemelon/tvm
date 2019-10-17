@@ -612,9 +612,9 @@ class ConfigSpace(object):
         self._entity_map = OrderedDict()  # name -> entity
         self._constraints = []
         self.errors = []
-        self.template_key = None
         self.code_hash = None
         self.flop = 0
+        self.cost = None
         self.is_fallback = False
 
     @staticmethod
@@ -790,7 +790,7 @@ class ConfigSpace(object):
         for name, space in self.space_map.items():
             entities[name] = space[t % len(space)]
             t //= len(space)
-        ret = ConfigEntity(index, self.code_hash, self.template_key, entities, self._constraints)
+        ret = ConfigEntity(index, self.code_hash, entities, self._constraints)
         return ret
 
     def __iter__(self):
@@ -830,17 +830,14 @@ class ConfigEntity(ConfigSpace):
         index of this config in space
     code_hash: str
         hash of schedule code
-    template_key : str
-        The specific template key
     entity_map: dict
         map name to transform entity
     constraints : list
         List of constraints
     """
-    def __init__(self, index, code_hash, template_key, entity_map, constraints):
+    def __init__(self, index, code_hash, entity_map, constraints):
         super(ConfigEntity, self).__init__()
         self.index = index
-        self.template_key = template_key
         self._collect = False
         self._entity_map = entity_map
         self._space_map = None
@@ -891,7 +888,6 @@ class ConfigEntity(ConfigSpace):
         """
         ret = {}
         ret['i'] = int(self.index)
-        ret['t'] = self.template_key
         ret['c'] = self.code_hash
         entity_map = []
         for k, v in self._entity_map.items():
@@ -926,7 +922,6 @@ class ConfigEntity(ConfigSpace):
         """
         index = json_dict["i"]
         code_hash = json_dict["c"]
-        template_key = json_dict["t"]
         constraints = []
         entity_map = OrderedDict()
 
@@ -944,11 +939,10 @@ class ConfigEntity(ConfigSpace):
                 raise RuntimeError("Invalid config knob type: " + knob_type)
             entity_map[str(key)] = entity
 
-        return ConfigEntity(index, code_hash, template_key, entity_map, constraints)
+        return ConfigEntity(index, code_hash, entity_map, constraints)
 
     def __repr__(self):
-        return "%s,%s,%s,%d" % (str(self._entity_map)[12:-1], self.template_key,
-                                self.code_hash, self.index)
+        return "%s,%s,%d" % (str(self._entity_map)[12:-1], self.code_hash, self.index)
 
 
 class FallbackConfigEntity(ConfigSpace):
@@ -1062,4 +1056,4 @@ class FallbackConfigEntity(ConfigSpace):
         self._entity_map[name] = entity
 
     def __repr__(self):
-        return "%s,%s,%s" % (str(self._entity_map)[12:-1], self.template_key, self.code_hash)
+        return "%s,%s" % (str(self._entity_map)[12:-1], self.code_hash)
