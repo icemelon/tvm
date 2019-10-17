@@ -42,8 +42,16 @@ OP2LAYOUT = {
     "topi_nn_depthwise_conv2d_nchw": topi.nn.depthwise_conv2d_infer_layout,
 }
 
+def get_infer_layout(task_name):
+    if task_name.startswith("conv2d"):
+        return topi.nn.conv2d_infer_layout
+    elif task_name.startswith("depthwise_conv2d"):
+        return topi.nn.depthwise_conv2d_infer_layout
+    else:
+        raise ValueError("Cannot find infer layout for task %s" % task_name)
 
-@autotvm.template
+#@autotvm.template
+@autotvm.register_customized_task("layout_transform")
 def layout_transform(*args):
     """Autotvm layout transform template."""
     args = deserialize_args(args)
@@ -212,7 +220,7 @@ class BaseGraphTuner(object):
                 node_entry["record_candidates"] = cache_dict[workload]
                 continue
             record_candidates = []
-            infer_layout_func = OP2LAYOUT[node_entry["topi_op"][0]]
+            infer_layout_func = get_infer_layout(node_entry["topi_op"][0])
             layout_tracking_dict = {}
             for record in cfg_dict[workload]:
                 in_measure, out_measure = record
@@ -264,7 +272,7 @@ class BaseGraphTuner(object):
 
                 if node_entry["op"] in self._target_ops:
                     o_idx = key
-                    o_infer_layout_func = OP2LAYOUT[node_entry["topi_op"][0]]
+                    o_infer_layout_func = get_infer_layout(node_entry["topi_op"][0])
                     o_wkl = node_entry["workloads"][0]
                     i_topi_op = in_node_entry["topi_op"][0]
                     i_wkl = in_node_entry["workloads"][0]
@@ -273,14 +281,14 @@ class BaseGraphTuner(object):
                         pivot += 1
                         i_topi_op = in_node_entry["topi_op"][pivot]
                         i_wkl = in_node_entry["workloads"][pivot]
-                    i_infer_layout_func = OP2LAYOUT[i_topi_op]
+                    i_infer_layout_func = get_infer_layout(i_topi_op)
                 else:
                     o_idx = target_input_idx
                     if i <= target_input_pos:
                         continue
-                    o_infer_layout_func = OP2LAYOUT[node_entry["topi_op"][0]]
+                    o_infer_layout_func = get_infer_layout(node_entry["topi_op"][0])
                     o_wkl = node_entry["workloads"][target_input_pos]
-                    i_infer_layout_func = OP2LAYOUT[node_entry["topi_op"][i]]
+                    i_infer_layout_func = get_infer_layout(node_entry["topi_op"][i])
                     i_wkl = node_entry["workloads"][i]
 
                 if (i_idx, o_idx) in pair_tracker:

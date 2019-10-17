@@ -43,6 +43,7 @@ from .measure import measure_option, MeasureInput, MeasureResult, MeasureErrorNo
 from .tuner import callback
 from .task import template, get_config, create, ConfigSpace, ConfigEntity, \
     register_topi_compute, register_topi_schedule, \
+    register_topi_compute2, register_topi_schedule2, register_customized_task, \
     DispatchContext, FallbackContext, ApplyHistoryBest as apply_history_best, \
     ApplyGraphBest as apply_graph_best
 from .env import GLOBAL_SCOPE

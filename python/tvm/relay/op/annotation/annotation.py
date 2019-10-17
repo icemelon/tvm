@@ -17,7 +17,7 @@
 """Annotation operations."""
 from __future__ import absolute_import as _abs
 from . import _make
-from ..op import register_schedule, schedule_injective
+from .. import op as reg
 from .... import nd as _nd
 from .... import TVMContext as _TVMContext
 
@@ -77,4 +77,4 @@ def checkpoint(data):
     """
     return _make.checkpoint(data)
 
-register_schedule("annotation.checkpoint", schedule_injective)
+reg.register_strategy_injective("annotation.checkpoint")

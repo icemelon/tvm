@@ -23,10 +23,11 @@ import tvm
 from tvm import relay
 from tvm import autotvm
 from .conv2d import _get_default_config
+from .conv2d import conv2d_NCHWc
 from .conv2d_int8 import _is_int8_hw_support, _get_default_config_int8
 from ..util import get_const_tuple, get_shape
 from ..nn import conv2d_legalize
-from ..nn.conv2d import conv2d, conv2d_NCHWc, conv2d_NCHWc_int8, conv2d_alter_layout
+from ..nn.conv2d import conv2d, conv2d_NCHWc_int8, conv2d_alter_layout
 from ..nn.depthwise_conv2d import depthwise_conv2d_NCHWc, depthwise_conv2d_nchw
 from ..nn.util import get_pad_tuple
 
@@ -85,7 +86,7 @@ def _alter_conv2d_layout(attrs, inputs, tinfo, F):
         workload = autotvm.task.args_to_workload(
             [data_tensor, kernel_tensor, strides, padding, dilation, data_layout, out_dtype],
             conv2d)
-
+    print('alter_conv2d_layout', workload)
     cfg = dispatch_ctx.query(target, workload)
     if cfg.is_fallback:
         if _is_int8_hw_support(data_dtype, kernel_dtype):

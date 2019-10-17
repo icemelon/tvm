@@ -20,12 +20,19 @@
 /*!
  * \file schedule_lang.cc
  */
+#include <dmlc/thread_local.h>
 #include <tvm/schedule.h>
 #include <tvm/operation.h>
+#include <tvm/runtime/registry.h>
 #include <unordered_set>
 #include "graph.h"
 
+#include <stack>
+
 namespace tvm {
+
+using runtime::TVMArgs;
+using runtime::TVMRetValue;
 
 namespace {
 
@@ -789,6 +796,67 @@ IterVarRelation SingletonNode::make(IterVar iter) {
   return IterVarRelation(n);
 }
 
+SpecializedCondition SpecializedConditionNode::make(Array<Expr> conditions) {
+  auto n = make_object<SpecializedConditionNode>();
+  n->clauses = conditions;
+  return SpecializedCondition(n);
+}
+
+/*! \brief Entry to hold the SpecializedCondition context stack. */
+struct TVMSpecializationThreadLocalEntry {
+  /*! \brief The current specialized condition */
+  std::stack<tvm::SpecializedCondition> condition_stack;
+};
+
+/*! \brief Thread local store to hold the Target context stack. */
+typedef dmlc::ThreadLocalStore<TVMSpecializationThreadLocalEntry> TVMSpecializationThreadLocalStore;
+
+void SpecializedCondition::EnterWithScope() {
+  TVMSpecializationThreadLocalEntry *entry = TVMSpecializationThreadLocalStore::Get();
+  entry->condition_stack.push(*this);
+}
+
+void SpecializedCondition::ExitWithScope() {
+  TVMSpecializationThreadLocalEntry *entry = TVMSpecializationThreadLocalStore::Get();
+  CHECK(!entry->condition_stack.empty());
+  CHECK(entry->condition_stack.top().same_as(*this));
+  entry->condition_stack.pop();
+}
+
+tvm::SpecializedCondition SpecializedCondition::Current() {
+  TVMSpecializationThreadLocalEntry *entry = TVMSpecializationThreadLocalStore::Get();
+  SpecializedCondition cond;
+  if (entry->condition_stack.size() > 0) {
+    cond = entry->condition_stack.top();
+  }
+  return cond;
+}
+
+TVM_REGISTER_GLOBAL("_CreateSpecializedCondition")
+.set_body_typed(SpecializedConditionNode::make);
+
+TVM_REGISTER_GLOBAL("_GetCurrentSpecialization")
+.set_body([](TVMArgs args, TVMRetValue* ret) {
+  *ret = SpecializedCondition::Current();
+});
+
+class SpecializedCondition::Internal {
+ public:
+  static void EnterScope(SpecializedCondition cond) {
+    cond.EnterWithScope();
+  }
+
+  static void ExitScope(SpecializedCondition cond) {
+    cond.ExitWithScope();
+  }
+};
+
+TVM_REGISTER_GLOBAL("_EnterSpecializationScope")
+.set_body_typed(SpecializedCondition::Internal::EnterScope);
+
+TVM_REGISTER_GLOBAL("_ExitSpecializationScope")
+.set_body_typed(SpecializedCondition::Internal::ExitScope);
+
 TVM_REGISTER_NODE_TYPE(StageNode);
 TVM_REGISTER_NODE_TYPE(IterVarAttrNode);
 TVM_REGISTER_NODE_TYPE(SplitNode);
@@ -796,6 +864,7 @@ TVM_REGISTER_NODE_TYPE(FuseNode);
 TVM_REGISTER_NODE_TYPE(RebaseNode);
 TVM_REGISTER_NODE_TYPE(SingletonNode);
 TVM_REGISTER_NODE_TYPE(ScheduleNode);
+TVM_REGISTER_NODE_TYPE(SpecializedConditionNode);
 
 // Printer
 TVM_STATIC_IR_FUNCTOR(NodePrinter, vtable)
@@ -850,5 +919,12 @@ TVM_STATIC_IR_FUNCTOR(NodePrinter, vtable)
 .set_dispatch<ScheduleNode>([](const ObjectRef& node, NodePrinter* p) {
     auto* op = static_cast<const ScheduleNode*>(node.get());
     p->stream << "schedule(" << op << ")";
-  });
+})
+.set_dispatch<SpecializedConditionNode>([](const ObjectRef& node, NodePrinter *p) {
+    auto* op = static_cast<const SpecializedConditionNode*>(node.get());
+    p->stream << "specialization(";
+    p->Print(op->clauses);
+    p->stream << ')';
+});
+
 }  // namespace tvm

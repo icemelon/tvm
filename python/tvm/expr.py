@@ -860,3 +860,11 @@ class Let(Expr):
     def __init__(self, var, value, body):
         self.__init_handle_by_constructor__(
             _make.Let, var, value, body)
+
+
+@register_node
+class Any(Expr):
+    """Any node.
+    """
+    def __init__(self):
+        self.__init_handle_by_constructor__(_make.Any)

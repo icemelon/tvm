@@ -20,17 +20,15 @@ from __future__ import absolute_import
 
 import topi
 from .. import op as reg
-from ..op import schedule_injective
 
 # resize
-reg.register_schedule("image.resize", schedule_injective)
-
-
 @reg.register_compute("image.resize")
-def compute_resize(attrs, inputs, out_type, target):
+def compute_resize(attrs, inputs, out_type):
     size = attrs.size
     layout = attrs.layout
     method = attrs.method
     coord_trans = attrs.coordinate_transformation_mode
     out_dtype = attrs.out_dtype
     return [topi.image.resize(inputs[0], size, layout, method, coord_trans, out_dtype)]
+
+reg.register_strategy_injective("image.resize")

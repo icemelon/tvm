@@ -194,7 +194,6 @@ def schedule_bitserial_conv2d_nhwc(outs):
     return _schedule_conv2d(outs)
 
 
-@generic.schedule_reduce.register(["hls"])
 def schedule_reduce(outs):
     """Schedule for reduction
 
@@ -241,7 +240,6 @@ def schedule_reduce(outs):
     return s
 
 
-@generic.schedule_softmax.register(["hls"])
 def schedule_softmax(outs):
     """Schedule for softmax
 
@@ -330,7 +328,6 @@ def schedule_dense(outs):
     return s
 
 
-@generic.schedule_pool.register(["hls"])
 def schedule_pool(outs, layout):
     """Schedule for pool
 
@@ -374,7 +371,6 @@ def schedule_pool(outs, layout):
     return s
 
 
-@generic.schedule_adaptive_pool.register(["hls"])
 def schedule_adaptive_pool(outs):
     """Schedule for adaptive_pool
 

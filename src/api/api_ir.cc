@@ -167,6 +167,7 @@ REGISTER_MAKE(Prefetch);
 REGISTER_MAKE(Free);
 REGISTER_MAKE(IfThenElse);
 REGISTER_MAKE(Evaluate);
+REGISTER_MAKE(Any);
 
 // overloaded, needs special handling
 // has default args

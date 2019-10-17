@@ -27,46 +27,22 @@ tuple.
 See tvm/topi/python/topi/arm_cpu/depthwise_conv2d.py for example usage.
 """
 
-from ... import _api_internal, tensor, placeholder
+from decorator import decorate
+from collections import namedtuple
 
-from .task import args_to_workload, dispatcher, register
+from tvm import target as _target
+from tvm import current_specialization
+
+from ... import _api_internal, tensor
+from .task import args_to_workload, dispatcher, register, DispatchContext, \
+    register_task_compute, register_task_schedule, serialize_args, deserialize_args, \
+    serialize_specialization, canonicalize_specialization, args_to_workload2
 from ..util import get_const_tuple
 
 # A table that records all registered dispatcher for all targets
 _REGISTERED_DISPATCHER = {
 }
 
-
-def serialize_args(args):
-    """serialize arguments of a topi function to a hashable tuple.
-
-    Parameters
-    ----------
-    args: list of hashable or Tensor
-    """
-    ret = []
-    for t in args:
-        if isinstance(t, tensor.Tensor):
-            ret.append(('TENSOR', get_const_tuple(t.shape), t.dtype))
-        else:
-            ret.append(t)
-    return tuple(ret)
-
-
-def deserialize_args(args):
-    """The inverse function of :code:`serialize_args`.
-
-    Parameters
-    ----------
-    args: list of hashable or Tensor
-    """
-    ret = []
-    for t in args:
-        if isinstance(t, tuple) and t[0] == 'TENSOR':
-            ret.append(placeholder(shape=t[1], dtype=t[2]))
-        else:
-            ret.append(t)
-    return ret
 
 
 # Task extractor for relay program
@@ -131,170 +107,173 @@ class TaskExtractEnv:
         }
 
         self.allow_duplicate = allow_duplicate
-        self._register_topi_task()
+        #self._register_topi_task()
         self.task_collection = []
         self.wanted_topi_funcs = list(self.topi_to_task.keys())
         self.modified_funcs = []
+        self.tracing = False
 
     def __enter__(self):
         self.task_collection = []
-        self.modified_funcs = []
+        #self.modified_funcs = []
+        self.tracing = True
 
-        for topi_compute in self.wanted_topi_funcs:
-            def _local_scope(compute_func):
-                """start a scope to hold the local function in for loop"""
-
-                def _tracing_wrapper(*args, **kwargs):
-                    assert not kwargs, "Do not support extracting tuning tasks when " \
-                                       "kwargs is used in TOPI function call. " \
-                                       "Please modify it to use only positional args."
-                    key = (self.topi_to_task[compute_func], serialize_args(args))
-                    if self.allow_duplicate or key not in self.task_collection:
-                        self.task_collection.append(key)
-
-                    return compute_func(*args, **kwargs)
-
-                self.func_to_reflection[compute_func](_tracing_wrapper)
-                self.modified_funcs.append(compute_func)
-
-            _local_scope(topi_compute)
+        # for topi_compute in self.wanted_topi_funcs:
+        #     def _local_scope(compute_func):
+        #         """start a scope to hold the local function in for loop"""
+        #
+        #         def _tracing_wrapper(*args, **kwargs):
+        #             assert not kwargs, "Do not support extracting tuning tasks when " \
+        #                                "kwargs is used in TOPI function call. " \
+        #                                "Please modify it to use only positional args."
+        #             key = (self.topi_to_task[compute_func], serialize_args(args))
+        #             if self.allow_duplicate or key not in self.task_collection:
+        #                 self.task_collection.append(key)
+        #
+        #             return compute_func(*args, **kwargs)
+        #
+        #         self.func_to_reflection[compute_func](_tracing_wrapper)
+        #         self.modified_funcs.append(compute_func)
+        #
+        #     _local_scope(topi_compute)
 
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         # revert modification
-        for func in self.modified_funcs:
-            self.func_to_reflection[func](func)
+        # for func in self.modified_funcs:
+        #     self.func_to_reflection[func](func)
+        self.tracing = False
 
-    def _register_topi_task(self):
-        """register tuning wrapper for topi function"""
-        import topi
-
-        # Avoid double registration for certain targets
-        if TaskExtractEnv.registered:
-            return
-        TaskExtractEnv.registered = True
-
-        # Tuning wrapper for topi functions
-        @register("topi_nn_conv2d")
-        def _topi_nn_conv2d(*args, **kwargs):
-            assert not kwargs, "Do not support kwargs in template function call"
-            args = deserialize_args(args)
-            A, W = args[:2]
-            layout = args[-2]
-            C = topi.nn.conv2d(*args, **kwargs)
-            if layout == 'NCHW':
-                s = topi.generic.schedule_conv2d_nchw([C])
-            elif layout == 'HWCN':
-                s = topi.generic.schedule_conv2d_hwcn([C])
-            elif layout == 'NHWC':
-                s = topi.generic.schedule_conv2d_nhwc([C])
-            else:
-                raise ValueError("Unsupported layout {}".format(layout))
-            return s, [A, W, C]
-
-        @register("topi_nn_depthwise_conv2d_nchw")
-        def _topi_nn_depthwise_conv2d_nchw(*args, **kwargs):
-            assert not kwargs, "Do not support kwargs in template function call"
-            args = deserialize_args(args)
-            A, W = args[:2]
-            C = topi.nn.depthwise_conv2d_nchw(*args, **kwargs)
-            s = topi.generic.schedule_depthwise_conv2d_nchw([C])
-            return s, [A, W, C]
-
-        @register("topi_nn_group_conv2d_nchw")
-        def _topi_nn_group_conv2d_nchw(*args, **kwargs):
-            assert not kwargs, "Do not support kwargs in template function call"
-            args = deserialize_args(args)
-            A, W = args[:2]
-            C = topi.nn.group_conv2d_nchw(*args, **kwargs)
-            s = topi.generic.schedule_group_conv2d_nchw([C])
-            return s, [A, W, C]
-
-        @register("topi_nn_conv2d_transpose_nchw")
-        def _topi_nn_conv2d_transpose_nchw(*args, **kwargs):
-            assert not kwargs, "Do not support kwargs in template function call"
-            args = deserialize_args(args)
-            A, W = args[:2]
-            C = topi.nn.conv2d_transpose_nchw(*args, **kwargs)
-            s = topi.generic.schedule_conv2d_transpose_nchw([C])
-            return s, [A, W, C]
-
-        @register("topi_nn_conv1d_transpose_ncw")
-        def _topi_nn_conv1d_transpose_ncw(*args, **kwargs):
-            assert not kwargs, "Do not support kwargs in template function call"
-            args = deserialize_args(args)
-            A, W = args[:2]
-            C = topi.nn.conv1d_transpose_ncw(*args, **kwargs)
-            s = topi.generic.schedule_conv1d_transpose_ncw([C])
-            return s, [A, W, C]
-
-        @register("topi_nn_dense")
-        def _topi_nn_dense(*args, **kwargs):
-            assert not kwargs, "Do not support kwargs in template function call"
-            args = deserialize_args(args)
-            if len(args) > 2:
-                data, weight, bias = args[:3]
-            else:
-                data, weight = args
-                bias = None
-            C = topi.nn.dense(*args, **kwargs)
-            s = topi.generic.schedule_dense([C])
-            if bias is not None:
-                return s, [data, weight, bias, C]
-            return s, [data, weight, C]
-
-        @register("topi_nn_batch_matmul")
-        def _topi_nn_batch_matmul(*args, **kwargs):
-            assert not kwargs, "Do not support kwargs in template function call"
-            args = deserialize_args(args)
-            A, B = args
-            C = topi.nn.batch_matmul(A, B)
-            s = topi.generic.schedule_batch_matmul([C])
-            return s, [A, B, C]
-
-        @register("topi_nn_bitserial_conv2d_nhwc")
-        def _topi_bitserial_conv2d_nhwc(*args, **kwargs):
-            args = deserialize_args(args)
-            C = topi.nn.bitserial_conv2d_nhwc(*args, **kwargs)
-            s = topi.generic.nn.schedule_bitserial_conv2d_nhwc([C])
-            A, W = args[:2]
-            return s, [A, W, C]
-
-        @register("topi_nn_bitserial_conv2d_nchw")
-        def _topi_bitserial_conv2d_nchw(*args, **kwargs):
-            args = deserialize_args(args)
-            C = topi.nn.bitserial_conv2d_nchw(*args, **kwargs)
-            s = topi.generic.nn.schedule_bitserial_conv2d_nchw([C])
-            A, W = args[:2]
-            return s, [A, W, C]
-
-        @register("topi_nn_bitserial_dense")
-        def _topi_nn_bitserial_dense(*args, **kwargs):
-            assert not kwargs, "Do not support kwargs in template function call"
-            args = deserialize_args(args)
-            A, W = args[:2]
-            C = topi.nn.bitserial_dense(*args, **kwargs)
-            s = topi.generic.schedule_bitserial_dense([C])
-            return s, [A, W, C]
-
-        @register("topi_nn_deformable_conv2d_nchw")
-        def _topi_nn_deformable_conv2d_nchw(*args, **kwargs):
-            assert not kwargs, "Do not support kwargs in template function call"
-            args = deserialize_args(args)
-            A, Offset, W = args[:3]
-            C = topi.nn.deformable_conv2d_nchw(*args, **kwargs)
-            s = topi.generic.schedule_deformable_conv2d_nchw([C])
-            return s, [A, Offset, W, C]
-
-        @register("topi_nn_conv2d_NCHWc")
-        def _topi_nn_conv2d_NCHWc(*args, **kwargs):
-            assert not kwargs, "Do not support kwargs in template function call"
-            args = deserialize_args(args)
-            A, W = args[:2]
-            C = topi.nn.conv2d_NCHWc(*args, **kwargs)
-            s = topi.generic.schedule_conv2d_NCHWc([C])
-            return s, [A, W, C]
+    # def _register_topi_task(self):
+    #     """register tuning wrapper for topi function"""
+    #     import topi
+    #
+    #     # Avoid double registration for certain targets
+    #     if TaskExtractEnv.registered:
+    #         return
+    #     TaskExtractEnv.registered = True
+    #
+    #     # Tuning wrapper for topi functions
+    #     @register("topi_nn_conv2d")
+    #     def _topi_nn_conv2d(*args, **kwargs):
+    #         assert not kwargs, "Do not support kwargs in template function call"
+    #         args = deserialize_args(args)
+    #         A, W = args[:2]
+    #         layout = args[-2]
+    #         C = topi.nn.conv2d(*args, **kwargs)
+    #         if layout == 'NCHW':
+    #             s = topi.generic.schedule_conv2d_nchw([C])
+    #         elif layout == 'HWCN':
+    #             s = topi.generic.schedule_conv2d_hwcn([C])
+    #         elif layout == 'NHWC':
+    #             s = topi.generic.schedule_conv2d_nhwc([C])
+    #         else:
+    #             raise ValueError("Unsupported layout {}".format(layout))
+    #         return s, [A, W, C]
+    #
+    #     @register("topi_nn_depthwise_conv2d_nchw")
+    #     def _topi_nn_depthwise_conv2d_nchw(*args, **kwargs):
+    #         assert not kwargs, "Do not support kwargs in template function call"
+    #         args = deserialize_args(args)
+    #         A, W = args[:2]
+    #         C = topi.nn.depthwise_conv2d_nchw(*args, **kwargs)
+    #         s = topi.generic.schedule_depthwise_conv2d_nchw([C])
+    #         return s, [A, W, C]
+    #
+    #     @register("topi_nn_group_conv2d_nchw")
+    #     def _topi_nn_group_conv2d_nchw(*args, **kwargs):
+    #         assert not kwargs, "Do not support kwargs in template function call"
+    #         args = deserialize_args(args)
+    #         A, W = args[:2]
+    #         C = topi.nn.group_conv2d_nchw(*args, **kwargs)
+    #         s = topi.generic.schedule_group_conv2d_nchw([C])
+    #         return s, [A, W, C]
+    #
+    #     @register("topi_nn_conv2d_transpose_nchw")
+    #     def _topi_nn_conv2d_transpose_nchw(*args, **kwargs):
+    #         assert not kwargs, "Do not support kwargs in template function call"
+    #         args = deserialize_args(args)
+    #         A, W = args[:2]
+    #         C = topi.nn.conv2d_transpose_nchw(*args, **kwargs)
+    #         s = topi.generic.schedule_conv2d_transpose_nchw([C])
+    #         return s, [A, W, C]
+    #
+    #     @register("topi_nn_conv1d_transpose_ncw")
+    #     def _topi_nn_conv1d_transpose_ncw(*args, **kwargs):
+    #         assert not kwargs, "Do not support kwargs in template function call"
+    #         args = deserialize_args(args)
+    #         A, W = args[:2]
+    #         C = topi.nn.conv1d_transpose_ncw(*args, **kwargs)
+    #         s = topi.generic.schedule_conv1d_transpose_ncw([C])
+    #         return s, [A, W, C]
+    #
+    #     @register("topi_nn_dense")
+    #     def _topi_nn_dense(*args, **kwargs):
+    #         assert not kwargs, "Do not support kwargs in template function call"
+    #         args = deserialize_args(args)
+    #         if len(args) > 2:
+    #             data, weight, bias = args[:3]
+    #         else:
+    #             data, weight = args
+    #             bias = None
+    #         C = topi.nn.dense(*args, **kwargs)
+    #         s = topi.generic.schedule_dense([C])
+    #         if bias is not None:
+    #             return s, [data, weight, bias, C]
+    #         return s, [data, weight, C]
+    #
+    #     @register("topi_nn_batch_matmul")
+    #     def _topi_nn_batch_matmul(*args, **kwargs):
+    #         assert not kwargs, "Do not support kwargs in template function call"
+    #         args = deserialize_args(args)
+    #         A, B = args
+    #         C = topi.nn.batch_matmul(A, B)
+    #         s = topi.generic.schedule_batch_matmul([C])
+    #         return s, [A, B, C]
+    #
+    #     @register("topi_nn_bitserial_conv2d_nhwc")
+    #     def _topi_bitserial_conv2d_nhwc(*args, **kwargs):
+    #         args = deserialize_args(args)
+    #         C = topi.nn.bitserial_conv2d_nhwc(*args, **kwargs)
+    #         s = topi.generic.nn.schedule_bitserial_conv2d_nhwc([C])
+    #         A, W = args[:2]
+    #         return s, [A, W, C]
+    #
+    #     @register("topi_nn_bitserial_conv2d_nchw")
+    #     def _topi_bitserial_conv2d_nchw(*args, **kwargs):
+    #         args = deserialize_args(args)
+    #         C = topi.nn.bitserial_conv2d_nchw(*args, **kwargs)
+    #         s = topi.generic.nn.schedule_bitserial_conv2d_nchw([C])
+    #         A, W = args[:2]
+    #         return s, [A, W, C]
+    #
+    #     @register("topi_nn_bitserial_dense")
+    #     def _topi_nn_bitserial_dense(*args, **kwargs):
+    #         assert not kwargs, "Do not support kwargs in template function call"
+    #         args = deserialize_args(args)
+    #         A, W = args[:2]
+    #         C = topi.nn.bitserial_dense(*args, **kwargs)
+    #         s = topi.generic.schedule_bitserial_dense([C])
+    #         return s, [A, W, C]
+    #
+    #     @register("topi_nn_deformable_conv2d_nchw")
+    #     def _topi_nn_deformable_conv2d_nchw(*args, **kwargs):
+    #         assert not kwargs, "Do not support kwargs in template function call"
+    #         args = deserialize_args(args)
+    #         A, Offset, W = args[:3]
+    #         C = topi.nn.deformable_conv2d_nchw(*args, **kwargs)
+    #         s = topi.generic.schedule_deformable_conv2d_nchw([C])
+    #         return s, [A, Offset, W, C]
+    #
+    #     @register("topi_nn_conv2d_NCHWc")
+    #     def _topi_nn_conv2d_NCHWc(*args, **kwargs):
+    #         assert not kwargs, "Do not support kwargs in template function call"
+    #         args = deserialize_args(args)
+    #         A, W = args[:2]
+    #         C = topi.nn.conv2d_NCHWc(*args, **kwargs)
+    #         s = topi.generic.schedule_conv2d_NCHWc([C])
+    #         return s, [A, W, C]
 
     def reset(self, wanted_topi_funcs):
         """Reset task collections
@@ -305,7 +284,28 @@ class TaskExtractEnv:
             The topi function to be extracted
         """
         self.task_collection = []
-        self.wanted_topi_funcs = wanted_topi_funcs
+        if wanted_topi_funcs is not None:
+            self.wanted_topi_funcs = wanted_topi_funcs
+
+    def add_task(self, task_name, args, cond=None):
+        """Add AutoTVM task
+
+        Parameters
+        ----------
+        task_name: str
+            AutoTVM task name.
+
+        args: tuple
+            Arguments to the TOPI function.
+
+        cond: SpecializedCondition
+            Specialized condition to enable the TOPI template.
+        """
+        assert cond is None, \
+            "AutoTVM currently doesn't support tuning under specialized condition"
+        key = (task_name, serialize_args(args), None)
+        if self.allow_duplicate or key not in self.task_collection:
+            self.task_collection.append(key)
 
     def get_tasks(self):
         """Get collected tasks
@@ -382,6 +382,7 @@ def register_topi_compute(topi_compute, target_keys, template_keys, func=None, o
                 @topi_compute.register(target_key)
                 @dispatcher
                 def config_dispatcher(*args, **kwargs):
+                    assert False, "should not be here!"
                     """override topi call as a config dispatcher"""
                     assert not kwargs, "Do not support kwargs in template function call"
                     return args_to_workload(args, topi_compute)
@@ -426,7 +427,6 @@ def register_topi_compute(topi_compute, target_keys, template_keys, func=None, o
         _decorator(func)
 
     return _decorator
-
 
 def register_topi_schedule(topi_schedule, target_keys, template_keys, func=None, override=False):
     """Register a tunable template for a topi schedule function.
@@ -507,3 +507,72 @@ def register_topi_schedule(topi_schedule, target_keys, template_keys, func=None,
         _decorator(func)
 
     return _decorator
+
+def register_topi_compute2(task_name, func=None):
+    def _decorate(topi_compute):
+        @register_task_compute(task_name)
+        def wrapper(*args, **kwargs):
+            assert not kwargs, "Do not support kwargs in template function call"
+            task_env = TaskExtractEnv.current
+            if task_env is not None and task_env.tracing:
+                task_env.add_task(task_name, args, current_specialization())
+            workload = args_to_workload2(args, task_name)
+            tgt = _target.current_target()
+            cfg = DispatchContext.current.query(tgt, workload)
+            node = topi_compute(cfg, *args)
+
+            # attach workload to return op
+            op = node.op
+            attrs = {}
+            for k, v in node.op.attrs.items():
+                attrs[k] = v
+            attrs['workload'] = workload
+            if isinstance(op, tensor.ComputeOp):
+                op = _api_internal._ComputeOp(
+                    op.name, op.tag, attrs, op.axis, op.body)
+            elif isinstance(op, tensor.ExternOp):
+                op = _api_internal._ExternOp(
+                    op.name, op.tag, attrs,
+                    op.inputs, op.input_placeholders,
+                    op.output_placeholders, op.body)
+            else:
+                raise RuntimeError("Unsupported op type: " + str(type(op)))
+
+            if isinstance(node, tensor.Tensor):
+                return op.output(0)
+            return [op.output(i) for i in range(len(node))]
+
+        return wrapper
+
+    if func:
+        return _decorate(func)
+    return _decorate
+
+def register_topi_schedule2(task_name, func=None):
+    def _decorate(topi_schedule):
+        @register_task_schedule(task_name)
+        def wrapper(outs, *args, **kwargs):
+            def traverse(tensors):
+                """traverse all ops to find attached workload"""
+                for t in tensors:
+                    op = t.op
+                    if 'workload' in op.attrs:
+                        return op.attrs['workload']
+                    wkl = traverse(op.input_tensors)
+                    if wkl:
+                        return wkl
+                return None
+
+            outs = [outs] if isinstance(outs, tensor.Tensor) else outs
+            workload = traverse(outs)
+            if workload is None:
+                raise RuntimeError("Cannot find workload in attribute of this schedule")
+            workload = args_to_workload2(workload)
+            tgt = _target.current_target()
+            cfg = DispatchContext.current.query(tgt, workload)
+            return topi_schedule(cfg, outs, *args, **kwargs)
+
+        return wrapper
+    if func:
+        return _decorate(func)
+    return _decorate

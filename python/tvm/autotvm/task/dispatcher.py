@@ -335,7 +335,8 @@ class ApplyHistoryBest(DispatchContext):
         if key in self._best_user_defined:
             return self._best_user_defined[key]
         if key in self.best_by_model:
-            return self.best_by_model[key][0].config
+            inp, res = self.best_by_model[key]
+            return inp.config
 
         # then try matching by target key
         for k in target.keys:
@@ -343,13 +344,16 @@ class ApplyHistoryBest(DispatchContext):
             if key in self._best_user_defined:
                 return self._best_user_defined[key]
             if key in self.best_by_targetkey:
-                return self.best_by_targetkey[key][0].config
+                inp, res = self.best_by_targetkey[key]
+                return inp.config
 
         return None
 
     def update(self, target, workload, cfg):
         model = target.model
         key = (model, workload)
+        # assume user provided config is the best
+        cfg.cost = 0
         self._best_user_defined[key] = cfg
 
         for k in target.keys:
@@ -479,9 +483,12 @@ class ApplyGraphBest(DispatchContext):
         cfg : ConfigSpace
             The specific configuration.
         """
+        print('=' * 80)
+        print('query graph dispatcher: %s, %s' % (target, workload))
         if self._counter < len(self._records):
             cfg = self._records[self._counter][0].config
             self._counter += 1
+            print(self._counter, cfg)
             self.update(target, workload, cfg)
             return cfg
         key = (str(target), workload)
@@ -497,5 +504,7 @@ class ApplyGraphBest(DispatchContext):
         return cfg
 
     def update(self, target, workload, cfg):
+        print('-' * 80)
+        print('update %s %s -> %s' % (target, workload, cfg))
         key = (str(target), workload)
         self._global_cfg_dict[key] = cfg

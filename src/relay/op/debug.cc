@@ -37,8 +37,7 @@ TVM_REGISTER_NODE_TYPE(DebugAttrs);
 
 Array<Tensor> DebugCompute(const Attrs& attrs,
                            const Array<Tensor>& inputs,
-                           const Type& out_type,
-                           const Target& target) {
+                           const Type& out_type) {
   return Array<Tensor>{ topi::identity(inputs[0]) };
 }
 

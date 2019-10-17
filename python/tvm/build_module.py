@@ -425,6 +425,8 @@ def lower(sch,
         stmt = ir_pass.InstrumentBoundCheckers(stmt)
     if simple_mode:
         return stmt
+    # print('='*80)
+    # print(stmt)
 
     return ir_pass.MakeAPI(stmt, name, arg_list, 0, cfg.restricted_func)
 

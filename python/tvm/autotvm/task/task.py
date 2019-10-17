@@ -24,7 +24,8 @@ registers the standard task.
 
 import numpy as np
 
-from ... import tensor, expr, container, target as _target
+from ... import tensor, expr, ir_pass, container, placeholder, target as _target
+from ...schedule import SpecializedCondition
 
 from ..util import get_const_int, get_const_tuple, get_func_name
 from .dispatcher import DispatchContext, ApplyConfig, dispatcher
@@ -34,6 +35,60 @@ def _raise_error(*args, **kwargs):  # pylint: disable=unused-argument
     raise RuntimeError("The function of this task is not found. Possibly the function "
                        "of this task is registered in another python file "
                        "which is not imported in this run")
+
+
+def serialize_args(args):
+    """serialize arguments of a topi function to a hashable tuple.
+
+    Parameters
+    ----------
+    args: list of hashable or Tensor
+    """
+    ret = []
+    for t in args:
+        if isinstance(t, tensor.Tensor):
+            ret.append(('TENSOR', get_const_tuple(t.shape), t.dtype))
+        else:
+            ret.append(t)
+    return tuple(ret)
+
+
+def deserialize_args(args):
+    """The inverse function of :code:`serialize_args`.
+
+    Parameters
+    ----------
+    args: list of hashable or Tensor
+    """
+    ret = []
+    for t in args:
+        if isinstance(t, tuple) and t[0] == 'TENSOR':
+            ret.append(placeholder(shape=t[1], dtype=t[2]))
+        else:
+            ret.append(t)
+    return ret
+
+
+def canonicalize_specialization(specialization, args):
+    sym_map = {}
+    for i, arg in enumerate(args):
+        if not isinstance(arg, tensor.Tensor):
+            continue
+        for j, dim in enumerate(arg.shape):
+            if not isinstance(dim, (int, expr.IntImm, expr.UIntImm)):
+                if dim not in sym_map:
+                    sym_map[dim] = expr.Var(f"arg{i}_dim{j}", dim.dtype)
+    conds = []
+    for cond in specialization.conditions:
+        cond = ir_pass.Substitute(cond, sym_map)
+        conds.append(cond)
+    return SpecializedCondition(conds)
+
+
+def serialize_specialization(specialization, args):
+    ret = list(specialization.conditions)
+    return tuple(ret)
+
 
 class Task(object):
     """A Tunable Task
@@ -52,7 +107,8 @@ class Task(object):
 
         # init null config space
         self.config_space = None
-        self.func = TASK_TABLE.get(name, _raise_error)
+        #self.func = TASK_TABLE.get(name, _raise_error)
+        self.func = TASK_TABLE2.get(name, _raise_error)
 
         # auxiliary info, available after `init_space` is called
         self.workload = None
@@ -105,7 +161,8 @@ class Task(object):
         self.args = state["args"]
         self.kwargs = state["kwargs"]
         self.config_space = state["config_space"]
-        self.func = TASK_TABLE.get(state["name"], _raise_error)
+        #self.func = TASK_TABLE.get(state["name"], _raise_error)
+        self.func = TASK_TABLE2.get(state["name"], _raise_error)
         self.workload = state["workload"]
         self.flop = state["flop"]
         self.target = state["target"]
@@ -118,6 +175,37 @@ class Task(object):
 
 TASK_TABLE = {
 }
+
+TASK_TABLE2 = {}
+
+class TopiTemplate(object):
+    def __init__(self):
+        self.compute = None
+        self.schedule = None
+        self.func = None
+
+    def __call__(self, *args, **kwargs):
+        args = deserialize_args(args)
+        if self.func is None:
+            return self._default_func(*args, **kwargs)
+        return self.func(*args, **kwargs)
+
+    def _default_func(self, *args, **kwargs):
+        out = self.compute(*args, **kwargs)
+        arg_bufs = [out] + self.get_inputs(out)
+        s = self.schedule([out])
+        return s, arg_bufs
+
+    def get_inputs(self, out):
+        inputs = []
+        queue = [out]
+        while queue:
+            t = queue.pop(0)
+            if isinstance(t.op, tensor.PlaceholderOp):
+                inputs.append(t)
+            else:
+                queue.extend(t.op.input_tensors)
+        return inputs
 
 def register(name, func=None, override=False):
     """Register a task function.
@@ -142,6 +230,48 @@ def register(name, func=None, override=False):
                 "Key %s is already registered" % name)
         TASK_TABLE[name] = myf
         return myf
+    if func:
+        return _do_reg(func)
+    return _do_reg
+
+def register_task_compute(name, func=None):
+    def _do_reg(f):
+        if name not in TASK_TABLE2:
+            TASK_TABLE2[name] = TopiTemplate()
+        tmpl = TASK_TABLE2[name]
+        if tmpl.compute is not None:
+            raise ValueError("Compute is already registered in autoTVM task %s" % name)
+        print('register compute for %s' % (name))
+        tmpl.compute = f
+        return f
+    if func:
+        return _do_reg(func)
+    return _do_reg
+
+def register_task_schedule(name, func=None):
+    def _do_reg(f):
+        if name not in TASK_TABLE2:
+            TASK_TABLE2[name] = TopiTemplate()
+        tmpl = TASK_TABLE2[name]
+        if tmpl.schedule is not None:
+            raise ValueError("Schedule is already registered in autoTVM task %s" % name)
+        print('register schedule for %s' % (name))
+        tmpl.schedule = f
+        return f
+    if func:
+        return _do_reg(func)
+    return _do_reg
+
+def register_customized_task(name, func=None):
+    def _do_reg(f):
+        if name not in TASK_TABLE2:
+            TASK_TABLE2[name] = TopiTemplate()
+        tmpl = TASK_TABLE2[name]
+        if tmpl.func is not None:
+            raise ValueError("Customized func is already registered in autoTVM task %s" % name)
+        print('register customized task func')
+        tmpl.func = f
+        return f
     if func:
         return _do_reg(func)
     return _do_reg
@@ -175,7 +305,8 @@ def create(func_name, args, target, target_host=None, template_key=None):
         else:
             register(func_name, func=func)
 
-    func = TASK_TABLE[func_name]
+    #func = TASK_TABLE[func_name]
+    func = TASK_TABLE2[func_name]
     ret = Task(func_name, args)
 
     if isinstance(target, str):
@@ -229,6 +360,38 @@ def args_to_workload(x, topi_compute_func=None):
         raise RuntimeError('Do not support type "%s" in argument. Consider to use'
                            'primitive types or tvm.expr.Var only' % type(x))
     return (get_func_name(topi_compute_func), ) + workload  if topi_compute_func else workload
+
+def args_to_workload2(x, task_name=None):
+    """Convert argument list to hashable workload tuple.
+    This function will convert list to tuple, tvm node to python value and
+    flatten tvm.tensor.Tensor to a tuple
+
+    Parameters
+    ----------
+    x: primitive hashable types or tensor.Tensor
+        The original value
+    topi_compute_func: topi compute function
+        The function name will be added as first element of the workload tuple
+
+    Returns
+    -------
+    ret: hashable
+        The hashable value
+    """
+    if isinstance(x, tensor.Tensor):
+        workload = get_const_tuple(x.shape) + (x.dtype, )
+    elif isinstance(x, (tuple, list, container.Array)):
+        workload = tuple([args_to_workload(a) for a in x])
+    elif isinstance(x, (str, int, float, np.int, np.float, expr.Var)):
+        workload = x
+    elif isinstance(x, (expr.StringImm, expr.UIntImm, expr.IntImm, expr.FloatImm)):
+        workload = x.value
+    elif x is None:
+        workload = 0
+    else:
+        raise RuntimeError('Do not support type "%s" in argument. Consider to use'
+                           'primitive types or tvm.expr.Var only' % type(x))
+    return tuple((task_name, ) + workload) if task_name else workload
 
 def template(func):
     """

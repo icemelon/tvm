@@ -20,7 +20,7 @@ import tvm
 from tvm import autotvm
 from ..util import get_const_tuple
 
-def schedule_direct_3d_cuda(cfg, s, conv):
+def schedule_direct_conv3d_cuda(cfg, s, conv):
     """schedule optimized for batch size = 1"""
 
     ##### space definition begin #####

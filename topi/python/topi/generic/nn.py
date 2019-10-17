@@ -225,7 +225,6 @@ def schedule_conv2d_winograd_nnpack_without_weight_transform(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_conv3d_ncdhw(outs):
     """Schedule for conv3d_ncdhw
 
@@ -242,7 +241,6 @@ def schedule_conv3d_ncdhw(outs):
     """
     return _default_schedule(outs, False)
 
-@tvm.target.generic_func
 def schedule_conv3d_ndhwc(outs):
     """Schedule for conv3d_ndhwc
 
@@ -277,7 +275,6 @@ def schedule_conv2d_transpose_nchw(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_conv1d_transpose_ncw(outs):
     """Schedule for conv1d_transpose_ncw
 
@@ -365,7 +362,6 @@ def schedule_group_conv2d_nchw(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_deformable_conv2d_nchw(outs):
     """Schedule for deformable_conv2d_nchw
 
@@ -435,7 +431,6 @@ def schedule_bitserial_dense(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.override_native_generic_func("schedule_reduce")
 def schedule_reduce(outs):
     """Schedule for reduction
 
@@ -453,7 +448,6 @@ def schedule_reduce(outs):
     return _default_schedule(outs, True)
 
 
-@tvm.target.override_native_generic_func("schedule_softmax")
 def schedule_softmax(outs):
     """Schedule for softmax
 
@@ -489,7 +483,6 @@ def schedule_dense(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.override_native_generic_func("schedule_pool")
 def schedule_pool(outs, layout):
     """Schedule for pool
 
@@ -510,7 +503,6 @@ def schedule_pool(outs, layout):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_pool_grad(outs):
     """Schedule for pool_grad
 
@@ -523,7 +515,6 @@ def schedule_pool_grad(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.override_native_generic_func("schedule_adaptive_pool")
 def schedule_adaptive_pool(outs):
     """Schedule for adaptive pool
 
@@ -594,7 +585,6 @@ def schedule_binary_dense(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_lrn(outs):
     """Schedule for lrn
 
@@ -609,11 +599,8 @@ def schedule_lrn(outs):
     sch: Schedule
         The computation schedule for the op.
     """
-    target = tvm.target.current_target(allow_none=False)
-    cpp_target = cpp.TEST_create_target(target.target_name)
-    return cpp.generic.default_schedule(cpp_target, outs, False)
+    return _default_schedule(outs, False)
 
-@tvm.target.generic_func
 def schedule_l2_normalize(outs):
     """Schedule for l2 normalize
 
@@ -628,11 +615,8 @@ def schedule_l2_normalize(outs):
     sch: Schedule
         The computation schedule for the op.
     """
-    target = tvm.target.current_target(allow_none=False)
-    cpp_target = cpp.TEST_create_target(target.target_name)
-    return cpp.generic.default_schedule(cpp_target, outs, False)
+    return _default_schedule(outs, False)
 
-@tvm.target.generic_func
 def schedule_sparse_dense(outs):
     """Schedule for sparse_dense
 
@@ -649,7 +633,6 @@ def schedule_sparse_dense(outs):
     """
     return _default_schedule(outs, False)
 
-@tvm.target.generic_func
 def schedule_sparse_transpose(outs):
     """Schedule for sparse_transpose
 
@@ -666,8 +649,18 @@ def schedule_sparse_transpose(outs):
     """
     return _default_schedule(outs, False)
 
-@tvm.target.generic_func
 def schedule_batch_matmul(outs):
-    target = tvm.target.current_target(allow_none=False)
-    cpp_target = cpp.TEST_create_target(target.target_name)
-    return cpp.generic.default_schedule(cpp_target, outs, False)
+    """Schedule for batch_matmul
+
+    Parameters
+    ----------
+    outs: Array of Tensor
+          The computation graph description of sparse_transpose
+          in the format of an array of tensors.
+
+    Returns
+    -------
+    sch: Schedule
+        The computation schedule for the op.
+    """
+    return _default_schedule(outs, False)

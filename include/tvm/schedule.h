@@ -742,6 +742,43 @@ class SingletonNode : public IterVarRelationNode {
   TVM_DECLARE_FINAL_OBJECT_INFO(SingletonNode, IterVarRelationNode);
 };
 
+class SpecializedConditionNode;
+
+class SpecializedCondition : public ObjectRef {
+ public:
+  SpecializedCondition() {}
+  explicit SpecializedCondition(ObjectPtr<Object> n) : ObjectRef(n) {}
+
+  TVM_DLL static tvm::SpecializedCondition Current();
+
+  const SpecializedConditionNode* operator->() const;
+
+  using ContainerType = SpecializedConditionNode;
+  class Internal;
+ private:
+  // enable with syntax.
+  friend class Internal;
+  friend class With<SpecializedCondition>;
+
+  TVM_DLL void EnterWithScope();
+
+  TVM_DLL void ExitWithScope();
+};
+
+class SpecializedConditionNode : public Object {
+ public:
+  Array<Expr> clauses;
+
+  void VisitAttrs(AttrVisitor* v) {
+    v->Visit("clauses", &clauses);
+  }
+
+  static SpecializedCondition make(Array<Expr> conditions);
+
+  static constexpr const char* _type_key = "SpecializedCondition";
+  TVM_DECLARE_FINAL_OBJECT_INFO(SpecializedConditionNode, Object);
+};
+
 
 // implementations
 inline const StageNode* Stage::operator->() const {
@@ -765,5 +802,10 @@ inline const IterVarRelationNode* IterVarRelation::operator->() const {
 inline const IterVarAttrNode* IterVarAttr::operator->() const {
   return static_cast<const IterVarAttrNode*>(get());
 }
+
+inline const SpecializedConditionNode* SpecializedCondition::operator->() const {
+  return static_cast<const SpecializedConditionNode*>(get());
+}
+
 }  // namespace tvm
 #endif  // TVM_SCHEDULE_H_

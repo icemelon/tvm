@@ -21,115 +21,65 @@ from __future__ import absolute_import
 import topi
 from topi.util import get_const_tuple
 from .. import op as reg
-from ..op import OpPattern, schedule_injective
+from .. import strategy
+from ..op import OpPattern
 from .._tensor import elemwise_shape_func
 from ....api import convert
 from ....hybrid import script
 
 # relu
-reg.register_schedule("nn.relu", schedule_injective)
+reg.register_strategy_broadcast("nn.relu")
 reg.register_pattern("nn.relu", OpPattern.ELEMWISE)
 
+
 # softmax
-@reg.register_schedule("nn.softmax")
-def schedule_softmax(_, outputs, target):
-    """Schedule definition of softmax"""
-    with target:
-        return topi.generic.schedule_softmax(outputs)
-
-
+reg.register_schedule("nn.softmax", strategy.schedule_softmax)
 reg.register_pattern("nn.softmax", OpPattern.OPAQUE)
 
-schedule_broadcast = schedule_injective
 
-
-@reg.register_schedule("nn.log_softmax")
-def schedule_log_softmax(_, outputs, target):
-    """Schedule definition of log_softmax"""
-    with target:
-        return topi.generic.schedule_softmax(outputs)
-
-
+# log_softmax
+reg.register_schedule("nn.log_softmax", strategy.schedule_softmax)
 reg.register_pattern("nn.log_softmax", OpPattern.OPAQUE)
 
 
 # dense
-@reg.register_compute("nn.dense")
-def compute_dense(attrs, inputs, out_type, target):
-    """Compute definition of dense"""
-    out_dtype = attrs.out_dtype
-    out_dtype = inputs[0].dtype if out_dtype == "" else out_dtype
-    return [topi.nn.dense(inputs[0], inputs[1], None, out_dtype)]
-
-
-@reg.register_schedule("nn.dense")
-def schedule_dense(attrs, outputs, target):
-    """Schedule definition of dense"""
-    with target:
-        return topi.generic.schedule_dense(outputs)
-
-
+reg.register_strategy("nn.dense", strategy.dense_strategy)
 reg.register_pattern("nn.dense", reg.OpPattern.OUT_ELEMWISE_FUSABLE)
 
 
+# fifo_buffer
 @reg.register_compute('nn.fifo_buffer')
-def compute_fifo_buffer(attrs, inputs, out_type, target):
+def compute_fifo_buffer(attrs, inputs, out_type):
     return [topi.nn.fifo_buffer(inputs[0], inputs[1], axis=attrs.get_int('axis'))]
 
-
-@reg.register_schedule('nn.fifo_buffer')
-def schedule_fifo_buffer(attrs, outputs, target):
-    with target:
-        return topi.generic.schedule_injective(outputs)
-
-
+reg.register_strategy_injective("nn.fifo_buffer")
 reg.register_pattern("nn.fifo_buffer", OpPattern.OPAQUE)
 
 
 # batch_matmul
-@reg.register_compute("nn.batch_matmul")
-def compute_batch_matmul(attrs, inputs, out_type, target):
-    """Compute definition of batch_matmul"""
-    with target:
-        return [topi.nn.batch_matmul(inputs[0], inputs[1])]
-
-
-@reg.register_schedule("nn.batch_matmul")
-def schedule_batch_matmul(attrs, outputs, target):
-    """Schedule definition of batch_matmul"""
-    with target:
-        return topi.generic.schedule_batch_matmul(outputs)
-
-
+reg.register_strategy("nn.batch_matmul", strategy.batch_matmul_strategy)
 reg.register_pattern("nn.batch_matmul", reg.OpPattern.OUT_ELEMWISE_FUSABLE)
+
 
 # sparse_dense
 @reg.register_compute("nn.sparse_dense")
-def compute_sparse_dense(attrs, inputs, out_type, target):
+def compute_sparse_dense(attrs, inputs, out_type):
     """Compute definition of sparse_dense"""
     return [topi.nn.sparse_dense(inputs[0], inputs[1], inputs[2], inputs[3])]
 
-@reg.register_schedule("nn.sparse_dense")
-def schedule_sparse_dense(attrs, outputs, target):
-    """Schedule definition of batch_matmul"""
-    with target:
-        return topi.generic.schedule_sparse_dense(outputs)
-
+reg.register_schedule("nn.sparse_dense", strategy.schedule_sparse_dense)
 reg.register_pattern("nn.sparse_dense", reg.OpPattern.OUT_ELEMWISE_FUSABLE)
+
 
 # sparse_transpose
 @reg.register_compute("nn.sparse_transpose")
-def compute_sparse_transpose(attrs, inputs, out_type, target):
+def compute_sparse_transpose(attrs, inputs, out_type):
     """Compute definition of sparse_transpose"""
     return topi.nn.sparse_transpose(inputs[0], inputs[1], inputs[2])
 
-@reg.register_schedule("nn.sparse_transpose")
-def schedule_sparse_transpose(attrs, outputs, target):
-    """Schedule definition of batch_matmul"""
-    with target:
-        return topi.generic.schedule_sparse_transpose(outputs)
-
+reg.register_schedule("nn.sparse_transpose", strategy.schedule_sparse_transpose)
 reg.register_pattern("nn.sparse_transpose", reg.OpPattern.OUT_ELEMWISE_FUSABLE)
+
 
 # conv2d
 def _find_conv2d_op(op):
@@ -142,89 +92,90 @@ def _find_conv2d_op(op):
             return op_
     return None
 
-@reg.register_compute("nn.conv2d")
-def compute_conv2d(attrs, inputs, out_type, target):
-    """Compute definition of conv2d"""
-    padding = get_const_tuple(attrs.padding)
-    strides = get_const_tuple(attrs.strides)
-    dilation = get_const_tuple(attrs.dilation)
-    groups = attrs.groups
-    layout = attrs.data_layout
-    kernel_layout = attrs.kernel_layout
-    out_dtype = attrs.out_dtype
-    out_dtype = (inputs[0].dtype if out_dtype in ("same", "")
-                 else out_dtype)
+# @reg.register_compute("nn.conv2d")
+# def compute_conv2d(attrs, inputs, out_type, target):
+#     """Compute definition of conv2d"""
+#     padding = get_const_tuple(attrs.padding)
+#     strides = get_const_tuple(attrs.strides)
+#     dilation = get_const_tuple(attrs.dilation)
+#     groups = attrs.groups
+#     layout = attrs.data_layout
+#     kernel_layout = attrs.kernel_layout
+#     out_dtype = attrs.out_dtype
+#     out_dtype = (inputs[0].dtype if out_dtype in ("same", "")
+#                  else out_dtype)
+#
+#     assert layout in ["NCHW", "NHWC", "NCHW4c", "HWCN"]
+#     (dilation_h, dilation_w) = dilation
+#     if dilation_h < 1 or dilation_w < 1:
+#         raise ValueError("dilation should be positive value")
+#
+#     def _get_out_depth():
+#         weight_shape = get_const_tuple(inputs[1].shape)
+#         # NHWC layout
+#         if kernel_layout.startswith("HW"):
+#             return weight_shape[2] * weight_shape[3]
+#         # NCHW layout.
+#         # in ARM CPU contrib_spatial_pack schedule, we will prepack weight layout
+#         if len(weight_shape) == 4:
+#             return weight_shape[0] * weight_shape[1]
+#         else:
+#             assert len(weight_shape) == 5
+#             C, M, _, _, VC = weight_shape
+#             return C * VC * M
+#
+#     if groups == 1:
+#         out = topi.nn.conv2d(
+#             inputs[0], inputs[1], strides, padding,
+#             dilation, layout, out_dtype)
+#     elif layout == "NCHW" and _get_out_depth() == groups:
+#         out = topi.nn.depthwise_conv2d_nchw(
+#             inputs[0], inputs[1], strides, padding, dilation, out_dtype)
+#     elif layout == "NHWC" and kernel_layout == "HWOI" and _get_out_depth() == groups:
+#         out = topi.nn.depthwise_conv2d_nhwc(
+#             inputs[0], inputs[1], strides, padding, dilation, out_dtype)
+#     elif layout in ['NCHW', 'NCHW4c']:
+#         out = topi.nn.group_conv2d_nchw(inputs[0], inputs[1], strides, padding, dilation, groups,
+#                                         out_dtype)
+#     else:
+#         raise ValueError("not support arbitrary group number for now")
+#     return [out]
 
-    assert layout in ["NCHW", "NHWC", "NCHW4c", "HWCN"]
-    (dilation_h, dilation_w) = dilation
-    if dilation_h < 1 or dilation_w < 1:
-        raise ValueError("dilation should be positive value")
 
-    def _get_out_depth():
-        weight_shape = get_const_tuple(inputs[1].shape)
-        # NHWC layout
-        if kernel_layout.startswith("HW"):
-            return weight_shape[2] * weight_shape[3]
-        # NCHW layout.
-        # in ARM CPU contrib_spatial_pack schedule, we will prepack weight layout
-        if len(weight_shape) == 4:
-            return weight_shape[0] * weight_shape[1]
-        else:
-            assert len(weight_shape) == 5
-            C, M, _, _, VC = weight_shape
-            return C * VC * M
+# @reg.register_schedule("nn.conv2d")
+# def schedule_conv2d(attrs, outs, target):
+#     """Schedule definition of conv2d"""
+#     groups = attrs.groups
+#     layout = attrs.data_layout
+#     kernel_layout = attrs.kernel_layout
+#
+#     with target:
+#         if groups == 1 and layout == "NCHW":
+#             return topi.generic.schedule_conv2d_nchw(outs)
+#         elif groups == 1 and layout == "NCHW4c":
+#             return topi.generic.schedule_conv2d_nchw(outs)
+#         elif groups == 1 and layout == "NHWC":
+#             return topi.generic.schedule_conv2d_nhwc(outs)
+#         elif groups == 1 and layout == "HWCN":
+#             return topi.generic.schedule_conv2d_hwcn(outs)
+#         elif groups != 1:
+#             # collect in_channels to distinguish depthwise and group conv2d
+#             op = _find_conv2d_op(outs[0].op)
+#             assert op is not None
+#
+#             is_depthwise = 'depthwise' in op.tag
+#             if is_depthwise:
+#                 if layout == "NCHW":
+#                     # TODO(leyuan, merrymercy, Huyuwei): fold depthwise topi into conv2d.
+#                     return topi.generic.schedule_depthwise_conv2d_nchw(outs)
+#                 if layout == "NHWC" and kernel_layout == "HWOI":
+#                     return topi.generic.schedule_depthwise_conv2d_nhwc(outs)
+#             else:
+#                 if layout in ["NCHW", "NCHW4c"]:
+#                     return topi.generic.schedule_group_conv2d_nchw(outs)
+#     raise ValueError("No compatible schedule")
 
-    if groups == 1:
-        out = topi.nn.conv2d(
-            inputs[0], inputs[1], strides, padding,
-            dilation, layout, out_dtype)
-    elif layout == "NCHW" and _get_out_depth() == groups:
-        out = topi.nn.depthwise_conv2d_nchw(
-            inputs[0], inputs[1], strides, padding, dilation, out_dtype)
-    elif layout == "NHWC" and kernel_layout == "HWOI" and _get_out_depth() == groups:
-        out = topi.nn.depthwise_conv2d_nhwc(
-            inputs[0], inputs[1], strides, padding, dilation, out_dtype)
-    elif layout in ['NCHW', 'NCHW4c']:
-        out = topi.nn.group_conv2d_nchw(inputs[0], inputs[1], strides, padding, dilation, groups,
-                                        out_dtype)
-    else:
-        raise ValueError("not support arbitrary group number for now")
-    return [out]
-
-
-@reg.register_schedule("nn.conv2d")
-def schedule_conv2d(attrs, outs, target):
-    """Schedule definition of conv2d"""
-    groups = attrs.groups
-    layout = attrs.data_layout
-    kernel_layout = attrs.kernel_layout
-
-    with target:
-        if groups == 1 and layout == "NCHW":
-            return topi.generic.schedule_conv2d_nchw(outs)
-        elif groups == 1 and layout == "NCHW4c":
-            return topi.generic.schedule_conv2d_nchw(outs)
-        elif groups == 1 and layout == "NHWC":
-            return topi.generic.schedule_conv2d_nhwc(outs)
-        elif groups == 1 and layout == "HWCN":
-            return topi.generic.schedule_conv2d_hwcn(outs)
-        elif groups != 1:
-            # collect in_channels to distinguish depthwise and group conv2d
-            op = _find_conv2d_op(outs[0].op)
-            assert op is not None
-
-            is_depthwise = 'depthwise' in op.tag
-            if is_depthwise:
-                if layout == "NCHW":
-                    # TODO(leyuan, merrymercy, Huyuwei): fold depthwise topi into conv2d.
-                    return topi.generic.schedule_depthwise_conv2d_nchw(outs)
-                if layout == "NHWC" and kernel_layout == "HWOI":
-                    return topi.generic.schedule_depthwise_conv2d_nhwc(outs)
-            else:
-                if layout in ["NCHW", "NCHW4c"]:
-                    return topi.generic.schedule_group_conv2d_nchw(outs)
-    raise ValueError("No compatible schedule")
-
+reg.register_strategy("nn.conv2d", strategy.conv2d_strategy)
 
 @reg.register_alter_op_layout("nn.conv2d")
 def alter_op_layout_conv2d(attrs, inputs, tinfos):
@@ -298,7 +249,7 @@ reg.register_pattern("nn.conv2d", OpPattern.OUT_ELEMWISE_FUSABLE)
 
 # conv2d_transpose
 @reg.register_compute("nn.conv2d_transpose")
-def compute_conv2d_transpose(attrs, inputs, out_dtype, target):
+def compute_conv2d_transpose(attrs, inputs, out_dtype):
     """Compute definition of conv2d_transpose"""
     padding = get_const_tuple(attrs.padding)
     strides = get_const_tuple(attrs.strides)
@@ -318,57 +269,11 @@ def compute_conv2d_transpose(attrs, inputs, out_dtype, target):
                       [0, 0, 0, 0], [0, 0, output_padding[0], output_padding[1]])
     return [out]
 
-
-@reg.register_compute("nn.conv3d")
-def compute_conv3d(attrs, inputs, out_type, target):
-    """Compute definition of conv3d"""
-    padding = get_const_tuple(attrs.padding)
-    strides = get_const_tuple(attrs.strides)
-    dilation = get_const_tuple(attrs.dilation)
-    groups = attrs.groups
-    layout = attrs.data_layout
-    out_dtype = attrs.out_dtype
-    out_dtype = (inputs[0].dtype if out_dtype in ("same", "")
-                 else out_dtype)
-
-    assert layout in ["NCDHW", "NDHWC"]
-    (dilation_d, dilation_h, dilation_w) = dilation
-    if dilation_d < 1 or dilation_h < 1 or dilation_w < 1:
-        raise ValueError("dilation should be positive value")
-
-    if groups == 1:
-        out = topi.nn.conv3d(
-            inputs[0], inputs[1], strides, padding,
-            dilation, layout, out_dtype)
-    else:
-        raise ValueError("not support arbitrary group number for now")
-    return [out]
-
-
-@reg.register_schedule("nn.conv3d")
-def schedule_conv3d(attrs, outs, target):
-    """Schedule definition of conv3d"""
-    groups = attrs.groups
-    layout = attrs.data_layout
-
-    with target:
-        if groups == 1 and layout == "NCDHW":
-            return topi.generic.schedule_conv3d_ncdhw(outs)
-        elif groups == 1 and layout == "NDHWC":
-            return topi.generic.schedule_conv3d_ndhwc(outs)
-
-    raise ValueError("No compatible schedule")
-
-
-reg.register_pattern("nn.conv3d", OpPattern.OUT_ELEMWISE_FUSABLE)
-
-
-@reg.register_schedule("nn.conv2d_transpose")
-def schedule_conv2d_transpose(attrs, outs, target):
-    """Schedule definition of conv2d_transpose"""
-    with target:
-        return topi.generic.schedule_conv2d_transpose_nchw(outs)
-
+# @reg.register_schedule("nn.conv2d_transpose")
+# def schedule_conv2d_transpose(attrs, outs, target):
+#     """Schedule definition of conv2d_transpose"""
+#     with target:
+#         return topi.generic.schedule_conv2d_transpose_nchw(outs)
 
 @reg.register_legalize("nn.conv2d_transpose")
 def legalize_conv2d_transpose(attrs, inputs, types):
@@ -392,192 +297,102 @@ def legalize_conv2d_transpose(attrs, inputs, types):
 
 reg.register_pattern("nn.conv2d_transpose", OpPattern.OUT_ELEMWISE_FUSABLE)
 
+
+# conv3d
+reg.register_strategy("nn.conv3d", strategy.conv3d_strategy)
+reg.register_pattern("nn.conv3d", OpPattern.OUT_ELEMWISE_FUSABLE)
+
+
 # conv1d_transpose
-@reg.register_compute("nn.conv1d_transpose")
-def compute_conv1d_transpose(attrs, inputs, out_dtype, target):
-    """Compute definition of conv1d_transpose"""
-    padding = get_const_tuple(attrs.padding)
-    strides = get_const_tuple(attrs.strides)
-    dilation = get_const_tuple(attrs.dilation)
-    groups = attrs.groups
-    layout = attrs.data_layout
-    out_dtype = attrs.out_dtype
-    out_dtype = (inputs[0].dtype if out_dtype in ("same", "")
-                 else out_dtype)
-    assert layout == "NCW", "conv1d_transpose ncw only supported"
-    assert dilation == (1,), "conv1d_transpose dilation is not supported"
-    assert groups == 1, "conv1d_transpose groups == 1 only supported"
-    out = topi.nn.conv1d_transpose_ncw(
-        inputs[0], inputs[1], strides, padding, out_dtype)
-    output_padding = get_const_tuple(attrs.output_padding)
-    out = topi.nn.pad(out,
-                      [0, 0, 0], [0, 0, output_padding[0]])
-    return [out]
-
-
-@reg.register_schedule("nn.conv1d_transpose")
-def schedule_conv1d_transpose(attrs, outs, target):
-    """Schedule definition of conv1d_transpose"""
-    with target:
-        return topi.generic.schedule_conv1d_transpose_ncw(outs)
-
+reg.register_strategy("nn.conv1d_transpose", strategy.conv1d_transpose_strategy)
 reg.register_pattern("nn.conv1d_transpose", OpPattern.OUT_ELEMWISE_FUSABLE)
 
+
 # bias_add
-reg.register_schedule("nn.bias_add", schedule_injective)
+reg.register_strategy_injective("nn.bias_add")
 reg.register_pattern("nn.bias_add", OpPattern.BROADCAST)
 
 
 # max_pool2d
-@reg.register_schedule("nn.max_pool2d")
-def schedule_max_pool2d(attrs, outs, target):
-    """Schedule definition of max_pool2d"""
-    layout = attrs.layout
-    with target:
-        return topi.generic.schedule_pool(outs, layout)
-
-
+reg.register_schedule("nn.max_pool2d", strategy.schedule_pool)
 reg.register_pattern("nn.max_pool2d", OpPattern.OUT_ELEMWISE_FUSABLE)
 
 
 # max_pool3d
-@reg.register_schedule("nn.max_pool3d")
-def schedule_max_pool3d(attrs, outs, target):
-    """Schedule definition of max_pool3d"""
-    layout = attrs.layout
-    with target:
-        return topi.generic.schedule_pool(outs, layout)
-
-
+reg.register_schedule("nn.max_pool3d", strategy.schedule_pool)
 reg.register_pattern("nn.max_pool3d", OpPattern.OUT_ELEMWISE_FUSABLE)
 
 
 # avg_pool2d
-@reg.register_schedule("nn.avg_pool2d")
-def schedule_avg_pool2d(attrs, outs, target):
-    """Schedule definition of avg_pool2d"""
-    layout = attrs.layout
-    with target:
-        return topi.generic.schedule_pool(outs, layout)
-
+reg.register_schedule("nn.avg_pool2d", strategy.schedule_pool)
 reg.register_pattern("nn.avg_pool2d", OpPattern.OUT_ELEMWISE_FUSABLE)
 
 
 # avg_pool3d
-@reg.register_schedule("nn.avg_pool3d")
-def schedule_avg_pool3d(attrs, outs, target):
-    """Schedule definition of avg_pool3d"""
-    layout = attrs.layout
-    with target:
-        return topi.generic.schedule_pool(outs, layout)
-
-
+reg.register_schedule("nn.avg_pool3d", strategy.schedule_pool)
 reg.register_pattern("nn.avg_pool3d", OpPattern.OUT_ELEMWISE_FUSABLE)
 
 
 # max_pool2d_grad
-@reg.register_schedule("nn.max_pool2d_grad")
-def schedule_max_pool2d_grad(attrs, outs, target):
-    """Schedule definition of max_pool2d_grad"""
-    with target:
-        return topi.generic.schedule_pool_grad(outs)
-
-
+reg.register_schedule("nn.max_pool2d_grad", strategy.schedule_pool_grad)
 reg.register_pattern("nn.max_pool2d_grad", OpPattern.OUT_ELEMWISE_FUSABLE)
 
 
 # avg_pool2d_grad
-@reg.register_schedule("nn.avg_pool2d_grad")
-def schedule_avg_pool2d_grad(attrs, outs, target):
-    """Schedule definition of avg_pool2d_grad"""
-    with target:
-        return topi.generic.schedule_pool_grad(outs)
-
-
+reg.register_schedule("nn.avg_pool2d_grad", strategy.schedule_pool_grad)
 reg.register_pattern("nn.avg_pool2d_grad", OpPattern.OUT_ELEMWISE_FUSABLE)
 
 
 # global_max_pool2d
-@reg.register_schedule("nn.global_max_pool2d")
-def schedule_global_max_pool2d(_, outs, target):
-    """Schedule definition of global_max_pool2d"""
-    with target:
-        return topi.generic.schedule_adaptive_pool(outs)
-
-
+reg.register_schedule("nn.global_max_pool2d", strategy.schedule_adaptive_pool)
 reg.register_pattern("nn.global_max_pool2d", OpPattern.OUT_ELEMWISE_FUSABLE)
 
 
 # global_avg_pool2d
-@reg.register_schedule("nn.global_avg_pool2d")
-def schedule_global_avg_pool2d(_, outs, target):
-    """Schedule definition of global_avg_pool2d"""
-    with target:
-        return topi.generic.schedule_adaptive_pool(outs)
-
-
+reg.register_schedule("nn.global_avg_pool2d", strategy.schedule_adaptive_pool)
 reg.register_pattern("nn.global_avg_pool2d", OpPattern.OUT_ELEMWISE_FUSABLE)
 
 
 # leaky_relu
-reg.register_schedule("nn.leaky_relu", schedule_broadcast)
+reg.register_strategy_broadcast("nn.leaky_relu")
 reg.register_pattern("nn.leaky_relu", OpPattern.ELEMWISE)
 
+
 # prelu
-reg.register_schedule("nn.prelu", schedule_broadcast)
+reg.register_strategy_broadcast("nn.prelu")
 reg.register_pattern("nn.prelu", OpPattern.BROADCAST)
 
+
 # flatten
-reg.register_schedule("nn.batch_flatten", schedule_broadcast)
+reg.register_strategy_broadcast("nn.batch_flatten")
 reg.register_pattern("nn.batch_flatten", OpPattern.INJECTIVE)
 
 
 # lrn
 @reg.register_compute("nn.lrn")
-def compute_lrn(attrs, inputs, out_dtype, target):
+def compute_lrn(attrs, inputs, out_dtype):
     """Compute definition of lrn"""
     assert len(inputs) == 1
     return [topi.nn.lrn(inputs[0], attrs.size, attrs.axis,
                         attrs.alpha, attrs.beta, attrs.bias)]
 
-
-@reg.register_schedule("nn.lrn")
-def schedule_lrn(attrs, outs, target):
-    """Schedule definition of lrn"""
-    with target:
-        return topi.generic.schedule_lrn(outs)
-
-
+reg.register_schedule("nn.lrn", strategy.schedule_lrn)
 reg.register_pattern("nn.lrn", OpPattern.OPAQUE)
 
 
 # l2_normalize
 @reg.register_compute("nn.l2_normalize")
-def compute_l2_normalize(attrs, inputs, out_dtype, target):
+def compute_l2_normalize(attrs, inputs, out_dtype):
     """Compute definition of l2 normalize"""
     return [topi.nn.l2_normalize(inputs[0], attrs.eps, attrs.axis)]
 
-
-@reg.register_schedule("nn.l2_normalize")
-def schedule_l2_normalize(attrs, outs, target):
-    """Schedule definition of l2 normalize"""
-    with target:
-        return topi.generic.schedule_l2_normalize(outs)
-
-
+reg.register_schedule("nn.l2_normalize", strategy.schedule_l2_normalize)
 reg.register_pattern("nn.l2_normalize", OpPattern.OUT_ELEMWISE_FUSABLE)
 
+
 # upsampling
-reg.register_schedule("nn.upsampling", reg.schedule_injective)
-
-
-def schedule_upsampling(_, outs, target):
-    """Schedule definition of upsampling"""
-    with target:
-        return topi.generic.schedule_injective(outs)
-
 @reg.register_compute("nn.upsampling")
-def compute_upsampling(attrs, inputs, out_dtype, target):
+def compute_upsampling(attrs, inputs, out_dtype):
     scale_h = attrs.scale_h
     scale_w = attrs.scale_w
     layout = attrs.layout
@@ -585,16 +400,12 @@ def compute_upsampling(attrs, inputs, out_dtype, target):
     align_corners = attrs.align_corners
     return [topi.nn.upsampling(inputs[0], scale_h, scale_w, layout, method, align_corners)]
 
+reg.register_strategy_injective("nn.upsampling")
+
+
 # upsampling3d
-reg.register_schedule("nn.upsampling3d", reg.schedule_injective)
-
-def schedule_upsampling3d(_, outs, target):
-    """Schedule definition of upsampling3d"""
-    with target:
-        return topi.generic.schedule_injective(outs)
-
 @reg.register_compute("nn.upsampling3d")
-def compute_upsampling3d(attrs, inputs, out_dtype, target):
+def compute_upsampling3d(attrs, inputs, out_dtype):
     scale_d = attrs.scale_d
     scale_h = attrs.scale_h
     scale_w = attrs.scale_w
@@ -604,12 +415,14 @@ def compute_upsampling3d(attrs, inputs, out_dtype, target):
     return [topi.nn.upsampling3d(inputs[0], scale_d, scale_h, scale_w, layout, method,\
         coordinate_transformation_mode)]
 
+reg.register_strategy_injective("nn.upsampling3d")
+
+
 # pad
-reg.register_schedule("nn.pad", schedule_broadcast)
+reg.register_strategy_broadcast("nn.pad")
+
 
 # mirror_pad
-reg.register_schedule("nn.mirror_pad", schedule_broadcast)
-
 @reg.register_compute("nn.mirror_pad")
 def compute_mirror_pad(attrs, inputs, out_dtype, target):
     pad_before, pad_after = list(zip(*attrs.pad_width))
@@ -617,9 +430,12 @@ def compute_mirror_pad(attrs, inputs, out_dtype, target):
     out = topi.nn.mirror_pad(inputs[0], pad_before=pad_before, pad_after=pad_after, mode=mode)
     return [out]
 
+reg.register_strategy_broadcast("nn.mirror_pad")
+
+
 # winograd related operators
 @reg.register_compute("nn.contrib_conv2d_winograd_without_weight_transform")
-def compute_contrib_conv2d_winograd_without_weight_transform(attrs, inputs, out_dtype, target):
+def compute_contrib_conv2d_winograd_without_weight_transform(attrs, inputs, out_dtype):
     """Compute definition of conv2d_winograd_without_weight_transform"""
     # pylint: disable=assignment-from-no-return
     padding = attrs.get_int_tuple("padding")
@@ -640,11 +456,11 @@ def compute_contrib_conv2d_winograd_without_weight_transform(attrs, inputs, out_
     return [out]
 
 
-@reg.register_schedule("nn.contrib_conv2d_winograd_without_weight_transform")
-def schedule_contrib_conv2d_winograd_without_weight_transform(attrs, outs, target):
-    """Schedule definition of conv2d_winograd_without_weight_transform"""
-    with target:
-        return topi.generic.schedule_conv2d_winograd_without_weight_transform(outs)
+# @reg.register_schedule("nn.contrib_conv2d_winograd_without_weight_transform")
+# def schedule_contrib_conv2d_winograd_without_weight_transform(attrs, outs, target):
+#     """Schedule definition of conv2d_winograd_without_weight_transform"""
+#     with target:
+#         return topi.generic.schedule_conv2d_winograd_without_weight_transform(outs)
 
 
 reg.register_pattern("nn.contrib_conv2d_winograd_without_weight_transform",
@@ -652,18 +468,18 @@ reg.register_pattern("nn.contrib_conv2d_winograd_without_weight_transform",
 
 
 @reg.register_compute("nn.contrib_conv2d_winograd_weight_transform")
-def compute_contrib_conv2d_winograd_weight_transform(attrs, inputs, out_dtype, target):
+def compute_contrib_conv2d_winograd_weight_transform(attrs, inputs, out_dtype):
     """Compute definition of contrib_conv2d_winograd_weight_transform"""
     out = topi.nn.conv2d_winograd_weight_transform(
         inputs[0], attrs.get_int('tile_size'))
     return [out]
 
 
-@reg.register_schedule("nn.contrib_conv2d_winograd_weight_transform")
-def schedule_contrib_conv2d_winograd_weight_transform(attrs, outs, target):
-    """Schedule definition of contrib_conv2d_winograd_weight_transform"""
-    with target:
-        return topi.generic.schedule_conv2d_winograd_weight_transform(outs)
+# @reg.register_schedule("nn.contrib_conv2d_winograd_weight_transform")
+# def schedule_contrib_conv2d_winograd_weight_transform(attrs, outs, target):
+#     """Schedule definition of contrib_conv2d_winograd_weight_transform"""
+#     with target:
+#         return topi.generic.schedule_conv2d_winograd_weight_transform(outs)
 
 
 reg.register_pattern("nn.contrib_conv2d_winograd_weight_transform",
@@ -673,7 +489,7 @@ reg.register_pattern("nn.contrib_conv2d_winograd_weight_transform",
 # winograd nnpack related operators
 @reg.register_compute("nn.contrib_conv2d_winograd_nnpack_without_weight_transform")
 def compute_contrib_conv2d_winograd_nnpack_without_weight_transform(
-        attrs, inputs, out_dtype, target):
+        attrs, inputs, out_dtype):
     """Compute definition of conv2d_winograd_nnpack_without_weight_transform"""
     # pylint: disable=assignment-from-no-return
     padding = attrs.get_int_tuple("padding")
@@ -694,11 +510,11 @@ def compute_contrib_conv2d_winograd_nnpack_without_weight_transform(
     return [out]
 
 
-@reg.register_schedule("nn.contrib_conv2d_winograd_nnpack_without_weight_transform")
-def schedule_contrib_conv2d_winograd_nnpack_without_weight_transform(attrs, outs, target):
-    """Schedule definition of conv2d_winograd_nnpack_without_weight_transform"""
-    with target:
-        return topi.generic.schedule_conv2d_winograd_nnpack_without_weight_transform(outs)
+# @reg.register_schedule("nn.contrib_conv2d_winograd_nnpack_without_weight_transform")
+# def schedule_contrib_conv2d_winograd_nnpack_without_weight_transform(attrs, outs, target):
+#     """Schedule definition of conv2d_winograd_nnpack_without_weight_transform"""
+#     with target:
+#         return topi.generic.schedule_conv2d_winograd_nnpack_without_weight_transform(outs)
 
 
 reg.register_pattern("nn.contrib_conv2d_winograd_nnpack_without_weight_transform",
@@ -706,7 +522,7 @@ reg.register_pattern("nn.contrib_conv2d_winograd_nnpack_without_weight_transform
 
 
 @reg.register_compute("nn.contrib_conv2d_winograd_nnpack_weight_transform")
-def compute_contrib_conv2d_winograd_nnpack_weight_transform(attrs, inputs, out_dtype, target):
+def compute_contrib_conv2d_winograd_nnpack_weight_transform(attrs, inputs, out_dtype):
     """Compute definition of contrib_conv2d_winograd_nnpack_weight_transform"""
     convolution_algorithm = attrs.get_int('convolution_algorithm')
     out = topi.nn.conv2d_winograd_nnpack_weight_transform(
@@ -714,47 +530,48 @@ def compute_contrib_conv2d_winograd_nnpack_weight_transform(attrs, inputs, out_d
     return [out]
 
 
-@reg.register_schedule("nn.contrib_conv2d_winograd_nnpack_weight_transform")
-def schedule_contrib_conv2d_winograd_nnpack_weight_transform(attrs, outs, target):
-    """Schedule definition of contrib_conv2d_winograd_nnpack_weight_transform"""
-    with target:
-        return topi.generic.schedule_conv2d_winograd_nnpack_weight_transform(outs)
+# @reg.register_schedule("nn.contrib_conv2d_winograd_nnpack_weight_transform")
+# def schedule_contrib_conv2d_winograd_nnpack_weight_transform(attrs, outs, target):
+#     """Schedule definition of contrib_conv2d_winograd_nnpack_weight_transform"""
+#     with target:
+#         return topi.generic.schedule_conv2d_winograd_nnpack_weight_transform(outs)
 
 
 reg.register_pattern("nn.contrib_conv2d_winograd_nnpack_weight_transform",
                      OpPattern.OPAQUE)
 
 
-@reg.register_compute("nn.contrib_conv2d_NCHWc")
-def compute_contrib_conv2d_NCHWc(attrs, inputs, out_dtype, target):
-    """Compute definition of conv2d NCHWc"""
-    # pylint: disable=assignment-from-no-return
-    padding = attrs.get_int_tuple("padding")
-    strides = attrs.get_int_tuple("strides")
-    dilation = attrs.get_int_tuple("dilation")
-    data_layout = attrs.get_str("data_layout")
-    out_layout = attrs.get_str("out_layout")
-    out_dtype = attrs.get_str("out_dtype")
-    out_dtype = inputs[0].dtype if out_dtype == "" else out_dtype
-
-    out = topi.nn.conv2d_NCHWc(inputs[0], inputs[1], strides, padding, dilation,
-                               data_layout, out_layout, out_dtype)
-    return [out]
-
-
-@reg.register_schedule("nn.contrib_conv2d_NCHWc")
-def schedule_contrib_conv2d_NCHWc(attrs, outs, target):
-    """Schedule definition of contrib_conv2d_NCHWc"""
-    with target:
-        return topi.generic.schedule_conv2d_NCHWc(outs)
+# conv2d_NCHWc
+# @reg.register_compute("nn.contrib_conv2d_NCHWc")
+# def compute_contrib_conv2d_NCHWc(attrs, inputs, out_dtype, target):
+#     """Compute definition of conv2d NCHWc"""
+#     # pylint: disable=assignment-from-no-return
+#     padding = attrs.get_int_tuple("padding")
+#     strides = attrs.get_int_tuple("strides")
+#     dilation = attrs.get_int_tuple("dilation")
+#     data_layout = attrs.get_str("data_layout")
+#     out_layout = attrs.get_str("out_layout")
+#     out_dtype = attrs.get_str("out_dtype")
+#     out_dtype = inputs[0].dtype if out_dtype == "" else out_dtype
+#
+#     out = topi.nn.conv2d_NCHWc(inputs[0], inputs[1], strides, padding, dilation,
+#                                data_layout, out_layout, out_dtype)
+#     return [out]
 
 
+# @reg.register_schedule("nn.contrib_conv2d_NCHWc")
+# def schedule_contrib_conv2d_NCHWc(attrs, outs, target):
+#     """Schedule definition of contrib_conv2d_NCHWc"""
+#     with target:
+#         return topi.generic.schedule_conv2d_NCHWc(outs)
+
+reg.register_strategy("nn.contrib_conv2d_NCHWc", strategy.conv2d_NCHWc_strategy)
 reg.register_pattern("nn.contrib_conv2d_NCHWc",
                      OpPattern.OUT_ELEMWISE_FUSABLE)
 
 
 @reg.register_compute("nn.contrib_conv2d_NCHWc_int8")
-def compute_contrib_conv2d_NCHWc_int8(attrs, inputs, out_dtype, target):
+def compute_contrib_conv2d_NCHWc_int8(attrs, inputs, out_dtype):
     """Compute definition of conv2d NCHWc"""
     # pylint: disable=assignment-from-no-return
     padding = attrs.get_int_tuple("padding")
@@ -770,11 +587,11 @@ def compute_contrib_conv2d_NCHWc_int8(attrs, inputs, out_dtype, target):
     return [out]
 
 
-@reg.register_schedule("nn.contrib_conv2d_NCHWc_int8")
-def schedule_contrib_conv2d_NCHWc_int8(attrs, outs, target):
-    """Schedule definition of contrib_conv2d_NCHWc_int8"""
-    with target:
-        return topi.generic.schedule_conv2d_NCHWc_int8(outs)
+# @reg.register_schedule("nn.contrib_conv2d_NCHWc_int8")
+# def schedule_contrib_conv2d_NCHWc_int8(attrs, outs, target):
+#     """Schedule definition of contrib_conv2d_NCHWc_int8"""
+#     with target:
+#         return topi.generic.schedule_conv2d_NCHWc_int8(outs)
 
 
 reg.register_pattern("nn.contrib_conv2d_NCHWc_int8",
@@ -798,45 +615,25 @@ def compute_contrib_depthwise_conv2d_NCHWc(attrs, inputs, out_dtype, target):
     return [out]
 
 
-@reg.register_schedule("nn.contrib_depthwise_conv2d_NCHWc")
-def schedule_contrib_depthwise_conv2d_NCHWc(attrs, outs, target):
-    """Schedule definition of contrib_conv2d_NCHWc"""
-    with target:
-        return topi.generic.schedule_depthwise_conv2d_NCHWc(outs)
+# @reg.register_schedule("nn.contrib_depthwise_conv2d_NCHWc")
+# def schedule_contrib_depthwise_conv2d_NCHWc(attrs, outs, target):
+#     """Schedule definition of contrib_conv2d_NCHWc"""
+#     with target:
+#         return topi.generic.schedule_depthwise_conv2d_NCHWc(outs)
 
 
 reg.register_pattern("nn.contrib_depthwise_conv2d_NCHWc",
                      OpPattern.OUT_ELEMWISE_FUSABLE)
 
 
-@reg.register_compute("nn.deformable_conv2d")
-def compute_deformable_conv2d(attrs, inputs, out_dtype, target):
-    """Compute definition of deformable_conv2d"""
-    padding = get_const_tuple(attrs.padding)
-    strides = get_const_tuple(attrs.strides)
-    dilation = get_const_tuple(attrs.dilation)
-    deformable_groups = attrs.deformable_groups
-    groups = attrs.groups
-    out_dtype = attrs.out_dtype
-    out_dtype = inputs[0].dtype if out_dtype in ("same", "") else out_dtype
-    with target:
-        out = topi.nn.deformable_conv2d_nchw(inputs[0], inputs[1], inputs[2], strides, padding,
-                                             dilation, deformable_groups, groups, out_dtype)
-    return [out]
-
-
-@reg.register_schedule("nn.deformable_conv2d")
-def schedule_deformable_conv2d(attrs, outs, target):
-    """Schedule definition of deformable_conv2d"""
-    with target:
-        return topi.generic.schedule_deformable_conv2d_nchw(outs)
-
-
+# deformable_conv2d
+reg.register_strategy("nn.deformable_conv2d", strategy.deformable_conv2d_strategy)
 reg.register_pattern("nn.deformable_conv2d", OpPattern.OUT_ELEMWISE_FUSABLE)
 
 
+# bitpack
 @reg.register_compute("nn.bitpack")
-def compute_bitpack(attrs, inputs, out_dtype, target):
+def compute_bitpack(attrs, inputs, out_dtype):
     """Compute definition for bitpack"""
     bits = attrs.bits
     pack_axis = attrs.pack_axis
@@ -848,16 +645,16 @@ def compute_bitpack(attrs, inputs, out_dtype, target):
                               name)
     return [out]
 
-@reg.register_schedule("nn.bitpack")
-def schedule_bitpack(attrs, outs, target):
-    with target:
-        return topi.generic.schedule_bitpack(outs)
+# @reg.register_schedule("nn.bitpack")
+# def schedule_bitpack(attrs, outs, target):
+#     with target:
+#         return topi.generic.schedule_bitpack(outs)
 
 reg.register_pattern("nn.bitpack", OpPattern.INJECTIVE)
 
 
 @reg.register_compute("nn.bitserial_conv2d")
-def compute_bitserial_conv2d(attrs, inputs, out_dtype, target):
+def compute_bitserial_conv2d(attrs, inputs, out_dtype):
     """Compute definition for bitserial conv2d."""
     padding = get_const_tuple(attrs.padding)
     strides = get_const_tuple(attrs.strides)
@@ -883,18 +680,18 @@ def compute_bitserial_conv2d(attrs, inputs, out_dtype, target):
     return [out]
 
 
-@reg.register_schedule("nn.bitserial_conv2d")
-def schedule_bitserial_conv2d(attrs, outs, target):
-    """Schedule definition for bitserial conv2d."""
-    layout = attrs.data_layout
-    if layout == 'NCHW':
-        with target:
-            return topi.generic.schedule_bitserial_conv2d_nchw(outs)
-    elif layout == 'NHWC':
-        with target:
-            return topi.generic.schedule_bitserial_conv2d_nhwc(outs)
-    else:
-        raise ValueError("Data layout not supported.")
+# @reg.register_schedule("nn.bitserial_conv2d")
+# def schedule_bitserial_conv2d(attrs, outs, target):
+#     """Schedule definition for bitserial conv2d."""
+#     layout = attrs.data_layout
+#     if layout == 'NCHW':
+#         with target:
+#             return topi.generic.schedule_bitserial_conv2d_nchw(outs)
+#     elif layout == 'NHWC':
+#         with target:
+#             return topi.generic.schedule_bitserial_conv2d_nhwc(outs)
+#     else:
+#         raise ValueError("Data layout not supported.")
 
 @reg.register_legalize("nn.bitserial_conv2d")
 def legalize_bitserial_conv2d(attrs, inputs, types):
@@ -922,7 +719,7 @@ reg.register_pattern("nn.bitserial_conv2d", OpPattern.OUT_ELEMWISE_FUSABLE)
 
 # bitserial_dense
 @reg.register_compute("nn.bitserial_dense")
-def compute_bitserial_dense(attrs, inputs, out_type, target):
+def compute_bitserial_dense(attrs, inputs, out_type):
     """Compute definition of bitserial_dense"""
     data_bits = attrs.data_bits
     weight_bits = attrs.weight_bits
@@ -942,54 +739,61 @@ def compute_bitserial_dense(attrs, inputs, out_type, target):
     ]
 
 
-@reg.register_schedule("nn.bitserial_dense")
-def schedule_bitserial_dense(attrs, outputs, target):
-    """Schedule definition of bitserial_dense"""
-    with target:
-        return topi.generic.schedule_bitserial_dense(outputs)
+# @reg.register_schedule("nn.bitserial_dense")
+# def schedule_bitserial_dense(attrs, outputs, target):
+#     """Schedule definition of bitserial_dense"""
+#     with target:
+#         return topi.generic.schedule_bitserial_dense(outputs)
 
 
 reg.register_pattern("nn.bitserial_dense", reg.OpPattern.OUT_ELEMWISE_FUSABLE)
 
 
-reg.register_pattern("nn.cross_entropy", OpPattern.OPAQUE)
-
+# cross_entropy
 @reg.register_compute("nn.cross_entropy")
-def compute_cross_entropy(attrs, inputs, out_dtype, target):
+def compute_cross_entropy(attrs, inputs, out_dtype):
     x, y = inputs
     return [-topi.sum(topi.log(x) * y) / x.shape[0]]
 
+reg.register_strategy_reduce("nn.cross_entropy")
+reg.register_pattern("nn.cross_entropy", OpPattern.OPAQUE)
 
-reg.register_pattern("nn.cross_entropy_with_logits", OpPattern.OPAQUE)
 
+# cross_entropy_with_logits
 @reg.register_compute("nn.cross_entropy_with_logits")
-def compute_cross_entropy_with_logits(attrs, inputs, out_dtype, target):
+def compute_cross_entropy_with_logits(attrs, inputs, out_dtype):
     x, y = inputs
     return [-topi.sum(x * y) / x.shape[0]]
 
+reg.register_strategy_reduce("nn.cross_entropy_with_logits")
+reg.register_pattern("nn.cross_entropy_with_logits", OpPattern.OPAQUE)
 
+
+# depth_to_space
 @reg.register_compute("nn.depth_to_space")
-def compute_depth_to_space(attrs, inputs, out_dtype, target):
+def compute_depth_to_space(attrs, inputs, out_dtype):
     block_size = attrs.block_size
     layout = attrs.layout
     mode = attrs.mode
     return [topi.nn.depth_to_space(inputs[0], block_size, layout=layout, mode=mode)]
 
-reg.register_schedule("nn.depth_to_space", schedule_injective)
+reg.register_strategy_injective("nn.depth_to_space")
 reg.register_pattern("nn.depth_to_space", OpPattern.INJECTIVE)
 
 
+# space_to_depth
 @reg.register_compute("nn.space_to_depth")
-def compute_space_to_depth(attrs, inputs, out_dtype, target):
+def compute_space_to_depth(attrs, inputs, out_dtype):
     block_size = attrs.block_size
     layout = attrs.layout
     return [topi.nn.space_to_depth(inputs[0], block_size, layout=layout)]
 
-reg.register_schedule("nn.space_to_depth", schedule_injective)
+reg.register_strategy_injective("nn.space_to_depth")
 reg.register_pattern("nn.space_to_depth", OpPattern.INJECTIVE)
 
 
-# shape func
+############################### shape func #################################
+
 @script
 def _conv2d_NCHWc_shape_func(dshape, kshape, strides, padding, dilation, oc_bn):
     out = output_tensor((dshape.shape[0],), "int64")

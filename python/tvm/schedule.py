@@ -670,4 +670,23 @@ class Stage(NodeBase):
         """
         _api_internal._StageOpenGL(self)
 
+@register_node
+class SpecializedCondition(NodeBase):
+    def __init__(self, conditions):
+        if not isinstance(conditions, (list, _container.Array)):
+            conditions = [conditions]
+        self.__init_handle_by_constructor__(
+            _api_internal._CreateSpecializedCondition, conditions)
+
+    def __enter__(self):
+        _api_internal._EnterSpecializationScope(self)
+
+    def __exit__(self, ptype, value, trace):
+        _api_internal._ExitSpecializationScope(self)
+
+
+def current_specialization():
+    return _api_internal._GetCurrentSpecialization()
+
+
 _init_api("tvm.schedule")

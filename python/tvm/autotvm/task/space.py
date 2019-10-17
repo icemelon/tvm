@@ -613,6 +613,7 @@ class ConfigSpace(object):
         self.template_key = None
         self.code_hash = None
         self.flop = 0
+        self.cost = None
         self.is_fallback = False
 
     @staticmethod

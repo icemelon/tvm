@@ -52,7 +52,6 @@ def schedule_reorg(outs):
     cpp_target = cpp.TEST_create_target(target.target_name)
     return cpp.generic.default_schedule(cpp_target, outs, False)
 
-@tvm.target.generic_func
 def schedule_get_valid_counts(outs):
     """Schedule for get_valid_counts
 
@@ -69,7 +68,6 @@ def schedule_get_valid_counts(outs):
     """
     return _default_schedule(outs, False)
 
-@tvm.target.generic_func
 def schedule_nms(outs):
     """Schedule for non-maximum suppression
 
@@ -86,7 +84,6 @@ def schedule_nms(outs):
     """
     return _default_schedule(outs, False)
 
-@tvm.target.generic_func
 def schedule_multibox_prior(outs):
     """Schedule for multibox_prior
 
@@ -103,7 +100,6 @@ def schedule_multibox_prior(outs):
     """
     return _default_schedule(outs, False)
 
-@tvm.target.generic_func
 def schedule_multibox_transform_loc(outs):
     """Schedule for multibox_transform_loc
 
@@ -138,7 +134,6 @@ def schedule_multibox_detection(outs):
     """
     return _default_schedule(outs, False)
 
-@tvm.target.generic_func
 def schedule_roi_align(outs):
     """Schedule for roi_align
 
@@ -155,7 +150,6 @@ def schedule_roi_align(outs):
     """
     return _default_schedule(outs, False)
 
-@tvm.target.generic_func
 def schedule_roi_pool(outs):
     """Schedule for roi_align
 
@@ -172,7 +166,6 @@ def schedule_roi_pool(outs):
     """
     return _default_schedule(outs, False)
 
-@tvm.target.generic_func
 def schedule_proposal(outs):
     """Schedule for proposal operator.
 

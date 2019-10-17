@@ -33,8 +33,7 @@ namespace relay {
 #define RELAY_BINARY_COMPUTE(FTOPI)                        \
   [] (const Attrs& attrs,                                  \
       const Array<Tensor>& inputs,                         \
-      const Type& out_type,                                \
-      const Target& target) -> Array<Tensor> {             \
+      const Type& out_type) -> Array<Tensor> {             \
     CHECK_EQ(inputs.size(), 2U);                           \
     return {FTOPI(inputs[0], inputs[1])};                  \
   }                                                        \

@@ -99,7 +99,6 @@ def _create_tuning_space(cfg, data, kernel, strides, padding, dilation, layout):
     else:
         cfg.define_knob("unroll_kw", [True, False])
 
-
 @autotvm.register_topi_compute(conv2d, 'cpu', ['direct'])
 def _declaration_conv(cfg, data, kernel, strides, padding, dilation, layout, out_dtype):
     out_dtype = data.dtype if out_dtype is None else out_dtype
@@ -367,15 +366,203 @@ def _conv2d_infer_layout(workload, cfg):
     return ((in_shape, in_layout),), ((out_shape, out_layout),)
 
 
-@autotvm.register_topi_compute(conv2d_NCHWc, 'cpu', 'direct')
-def _declaration_conv_NCHWc(cfg, data, kernel, strides,
-                            padding, dilation, layout, out_layout, out_dtype):
+# @autotvm.register_topi_compute(conv2d_NCHWc, 'cpu', 'direct')
+# def _declaration_conv_NCHWc(cfg, data, kernel, strides,
+#                             padding, dilation, layout, out_layout, out_dtype):
+#     # layout and out_layout are not used here,
+#     # we keep them for debug convenience when dumping autotvm workload
+#     n, ic_chunk, ih, iw, ic_bn = get_const_tuple(data.shape)
+#     in_channel = ic_chunk * ic_bn
+#     oc_chunk, ic_chunk_group, kernel_height, kernel_width, _, oc_bn = \
+#             get_const_tuple(kernel.shape)
+#     num_filter = oc_chunk * oc_bn
+#
+#     # If no config was set, we can fallback to NCHW config.
+#     if cfg.is_fallback:
+#         _get_default_config(cfg, tvm.placeholder((n, in_channel, ih, iw), dtype=data.dtype),
+#                             tvm.placeholder((num_filter, in_channel, kernel_height, kernel_width),
+#                                             dtype=kernel.dtype),
+#                             strides, padding, out_dtype)
+#
+#     return nn.conv2d_NCHWc_compute(data,
+#                                    kernel,
+#                                    strides,
+#                                    padding,
+#                                    dilation,
+#                                    layout,
+#                                    out_layout,
+#                                    out_dtype)
+
+
+# @autotvm.register_topi_schedule(generic.schedule_conv2d_NCHWc, 'cpu', ['direct'])
+# def _schedule_conv2d_NCHWc(cfg, outs):
+#     """Create schedule for tensors"""
+#     s = tvm.create_schedule([x.op for x in outs])
+#     scheduled_ops = []
+#
+#     def traverse(op):
+#         """Traverse operators from computation graph"""
+#         # inline all one-to-one-mapping operators except the last stage (output)
+#         if tag.is_broadcast(op.tag):
+#             if op not in s.outputs:
+#                 s[op].compute_inline()
+#             for tensor in op.input_tensors:
+#                 if isinstance(tensor.op, tvm.tensor.ComputeOp) and tensor.op not in scheduled_ops:
+#                     traverse(tensor.op)
+#
+#         if 'conv2d_NCHWc' in op.tag:
+#             conv_out = op.output(0)
+#             kernel = conv_out.op.input_tensors[1]
+#             data_vec = conv_out.op.input_tensors[0]
+#             data = data_vec.op.input_tensors[0] \
+#                 if isinstance(data_vec.op, tvm.tensor.ComputeOp) and "pad" not in data_vec.op.tag \
+#                 else data_vec
+#             if isinstance(data.op, tvm.tensor.ComputeOp) and "pad" in data.op.tag:
+#                 data_pad = data
+#                 data = data_pad.op.input_tensors[0]
+#
+#             args = [s, cfg, data_vec, conv_out, outs[0]]
+#             target = tvm.target.current_target(allow_none=False)
+#             _, _, kh, kw, _, _, = get_const_tuple(kernel.shape)
+#             if kh == 1 and kw == 1:
+#                 conv2d_avx_1x1._schedule_conv_NCHWc(*args)
+#             else:
+#                 conv2d_avx_common._schedule_conv_NCHWc(*args)
+#
+#         scheduled_ops.append(op)
+#
+#     traverse(outs[0].op)
+#     return s
+
+
+@autotvm.register_topi_compute2("conv2d_nchw.x86")
+def conv2d_nchw(cfg, data, kernel, strides, padding, dilation, layout, out_dtype):
+    out_dtype = data.dtype if out_dtype is None else out_dtype
+    padding = padding if isinstance(padding, (tuple, list)) else (padding, padding)
+    strides = strides if isinstance(strides, (tuple, list)) else (strides, strides)
+    dilation = dilation if isinstance(dilation, (tuple, list)) else (dilation, dilation)
+    _create_tuning_space(cfg, data, kernel, strides, padding, dilation, 'NCHW')
+    if cfg.is_fallback:
+        _get_default_config(cfg, data, kernel, strides, padding, out_dtype)
+    return _declaration_conv_impl(cfg, data, kernel, strides,
+                                  padding, dilation, 'NCHW', out_dtype)
+
+
+@autotvm.register_topi_schedule2("conv2d_nchw.x86")
+def schedule_conv2d_nchw(cfg, outs):
+    """Create schedule for tensors"""
+    s = tvm.create_schedule([x.op for x in outs])
+    scheduled_ops = []
+
+    def traverse(op):
+        """Traverse operators from computation graph"""
+        # inline all one-to-one-mapping operators except the last stage (output)
+        if tag.is_broadcast(op.tag):
+            if op not in s.outputs:
+                s[op].compute_inline()
+            for tensor in op.input_tensors:
+                if isinstance(tensor.op, tvm.tensor.ComputeOp) and tensor.op not in scheduled_ops:
+                    traverse(tensor.op)
+
+        if 'conv2d_nchw' in op.tag:
+            output = op.output(0)
+            conv_out = op.input_tensors[0]
+            kernel_vec = conv_out.op.input_tensors[1]
+            kernel = kernel_vec.op.input_tensors[0]
+            if isinstance(kernel.op, tvm.tensor.ComputeOp) and "dilate" in kernel.op.tag:
+                s[kernel].compute_inline()
+            data_vec = conv_out.op.input_tensors[0]
+            data = data_vec.op.input_tensors[0]
+            data_pad = None
+            if isinstance(data.op, tvm.tensor.ComputeOp) and "pad" in data.op.tag:
+                data_pad = data
+                data = data_pad.op.input_tensors[0]
+
+            _, _, kh, kw = get_const_tuple(kernel.shape)
+            is_kernel_1x1 = kh == 1 and kw == 1
+            args = [s, cfg, data, data_pad, data_vec, kernel_vec, conv_out, output, outs[0]]
+            if is_kernel_1x1:
+                conv2d_avx_1x1._schedule_conv(*args)
+            else:
+                conv2d_avx_common._schedule_conv(*args)
+
+        scheduled_ops.append(op)
+
+    traverse(outs[0].op)
+    return s
+
+@autotvm.register_topi_compute2("conv2d_nhwc.x86")
+def conv2d_nhwc(_, data, kernel, strides, padding, dilation, layout, out_dtype):
+    out_dtype = data.dtype if out_dtype is None else out_dtype
+    padding = padding if isinstance(padding, (tuple, list)) else (padding, padding)
+    strides = strides if isinstance(strides, (tuple, list)) else (strides, strides)
+    dilation = dilation if isinstance(dilation, (tuple, list)) else (dilation, dilation)
+    return nn.conv2d_nhwc(data, kernel, strides, padding, dilation, out_dtype)
+
+@autotvm.register_topi_schedule2("conv2d_nhwc.x86")
+def schedule_conv2d_nhwc2(outs):
+    """Create schedule for tensors"""
+    s = tvm.create_schedule([x.op for x in outs])
+    output_op = outs[0].op
+    scheduled_ops = []
+
+    def traverse(op):
+        """Traverse operators from computation graph"""
+        # inline all one-to-one-mapping operators except the last stage (output)
+        if tag.is_broadcast(op.tag):
+            if op not in s.outputs:
+                s[op].compute_inline()
+            else: # inject custom schedule
+                if len(op.axis) == 4: # schedule bias + bn + relu
+                    n, h, w, c = op.axis
+                    fused = s[op].fuse(n, h, w)
+                    s[op].parallel(fused)
+                    s[op].vectorize(c)
+            for tensor in op.input_tensors:
+                if isinstance(tensor.op, tvm.tensor.ComputeOp) and tensor.op not in scheduled_ops:
+                    traverse(tensor.op)
+
+        if 'conv2d_nhwc' in op.tag:
+            conv = op.output(0)
+            kernel = op.input_tensors[1]
+            if isinstance(kernel.op, tvm.tensor.ComputeOp) and "dilate" in kernel.op.tag:
+                s[kernel].compute_inline()
+
+            data = op.input_tensors[0]
+            data_pad = None
+            if isinstance(data.op, tvm.tensor.ComputeOp) and "pad" in data.op.tag:
+                data_pad = data
+                data = data_pad.op.input_tensors[0]
+
+            n_pad, h_pad, w_pad, c_pad = data_pad.op.axis
+            pad_fused = s[data_pad].fuse(n_pad, h_pad)
+            s[data_pad].parallel(pad_fused)
+            C = conv
+            n, h, w, c = C.op.axis
+            ry, rx, rc = C.op.reduce_axis
+            n_out, h_out, w_out, c_out = output_op.axis
+            s[C].vectorize(c)
+            if op != output_op: # fuse bias + bn + relu into conv
+                s[C].compute_at(s[output_op], c_out)
+            else:
+                fused = s[C].fuse(n, h, w)
+                s[C].parallel(fused)
+
+        scheduled_ops.append(op)
+
+    traverse(output_op)
+    return s
+
+@autotvm.register_topi_compute2("conv2d_NCHWc.x86")
+def conv2d_NCHWc(cfg, data, kernel, strides, padding, dilation, layout, out_layout, out_dtype):
+    print('inside x86.conv2d_NCHWC')
+    print(cfg)
     # layout and out_layout are not used here,
     # we keep them for debug convenience when dumping autotvm workload
     n, ic_chunk, ih, iw, ic_bn = get_const_tuple(data.shape)
     in_channel = ic_chunk * ic_bn
     oc_chunk, ic_chunk_group, kernel_height, kernel_width, _, oc_bn = \
-            get_const_tuple(kernel.shape)
+        get_const_tuple(kernel.shape)
     num_filter = oc_chunk * oc_bn
 
     # If no config was set, we can fallback to NCHW config.
@@ -394,9 +581,8 @@ def _declaration_conv_NCHWc(cfg, data, kernel, strides,
                                    out_layout,
                                    out_dtype)
 
-
-@autotvm.register_topi_schedule(generic.schedule_conv2d_NCHWc, 'cpu', ['direct'])
-def _schedule_conv2d_NCHWc(cfg, outs):
+@autotvm.register_topi_schedule2("conv2d_NCHWc.x86")
+def schedule_conv2d_NCHWc(cfg, outs):
     """Create schedule for tensors"""
     s = tvm.create_schedule([x.op for x in outs])
     scheduled_ops = []
@@ -423,7 +609,6 @@ def _schedule_conv2d_NCHWc(cfg, outs):
                 data = data_pad.op.input_tensors[0]
 
             args = [s, cfg, data_vec, conv_out, outs[0]]
-            target = tvm.target.current_target(allow_none=False)
             _, _, kh, kw, _, _, = get_const_tuple(kernel.shape)
             if kh == 1 and kw == 1:
                 conv2d_avx_1x1._schedule_conv_NCHWc(*args)
@@ -434,3 +619,39 @@ def _schedule_conv2d_NCHWc(cfg, outs):
 
     traverse(outs[0].op)
     return s
+
+@autotvm.register_customized_task("conv2d_NCHWc.x86")
+def _conv2d_NCHWc_task(*args, **kwargs):
+    assert not kwargs, "Do not support kwargs in template function call"
+    if len(args) == 7:
+        data, kernel, strides, padding, dilation, origin_layout, dtype = args
+    else:
+        assert len(args) == 8
+        data, kernel, strides, padding, dilation, origin_layout, out_layout, dtype = args
+
+    raw_data_shape = get_const_tuple(data.shape)
+    raw_kernel_shape = get_const_tuple(kernel.shape)
+
+    # get config here
+    cfg = get_config()
+    _create_tuning_space(cfg, data, kernel, strides, padding, dilation, origin_layout)
+
+    idxdiv = tvm.indexdiv
+    idxmod = tvm.indexmod
+    # change shape with the value in config
+    ic_bn, oc_bn, ow_bn = (cfg["tile_ic"].size[-1], cfg["tile_oc"].size[-1],
+                           cfg["tile_ow"].size[-1])
+    new_data_shape = (raw_data_shape[0], idxdiv(raw_data_shape[1], ic_bn),
+                      raw_data_shape[2], raw_data_shape[3], ic_bn)
+    data_layout = "NCHW%dc" % ic_bn
+    out_layout = "NCHW%dc" % oc_bn
+    new_kernel_shape = (idxdiv(raw_kernel_shape[0], oc_bn),
+                        idxdiv(raw_kernel_shape[1], ic_bn),
+                        raw_kernel_shape[2], raw_kernel_shape[3], ic_bn, oc_bn)
+    new_data = tvm.placeholder(new_data_shape, data.dtype)
+    new_kernel = tvm.placeholder(new_kernel_shape, kernel.dtype)
+
+    C = conv2d_NCHWc(new_data, new_kernel, strides, padding, dilation,
+                     data_layout, out_layout, dtype)
+    s = schedule_conv2d_NCHWc([C])
+    return s, [new_data, new_kernel, C]

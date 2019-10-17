@@ -31,7 +31,7 @@ from ..util import traverse_inline, get_const_tuple
 logger = logging.getLogger('topi')
 
 
-@autotvm.register_topi_compute(dense, ["cuda", "gpu"], "direct")
+#@autotvm.register_topi_compute(dense, ["cuda", "gpu"], "direct")
 def dense_cuda(cfg, data, weight, bias=None, out_dtype=None):
     """Dense operator for cuda backend.
 
@@ -70,6 +70,22 @@ def dense_cuda(cfg, data, weight, bias=None, out_dtype=None):
         return matmul
     return dense_default(data, weight, bias, out_dtype)
 
+def dense_cublas(data, weight, bias=None, out_dtype=None):
+    assert len(data.shape) == 2 and len(weight.shape) == 2, \
+        "only support 2-dim dense"
+    if bias is not None:
+        assert len(bias.shape) == 1
+    if out_dtype is None:
+        out_dtype = data.dtype
+    assert out_dtype == data.dtype, "Mixed precision not supported."
+    batch, in_dim = data.shape
+    out_dim, _ = weight.shape
+    matmul = cublas.matmul(data, weight, False, True)
+    if bias is not None:
+        matmul = tvm.compute((batch, out_dim),
+                             lambda i, j: matmul[i, j] + bias[j],
+                             tag=tag.BROADCAST)
+    return matmul
 
 @autotvm.register_topi_schedule(generic.schedule_dense, ["cuda", "gpu"], "direct")
 def schedule_dense(cfg, outs):
@@ -250,7 +266,9 @@ def schedule_dense_large_batch(cfg, s, C):
     s[BB].bind(tx, tvm.thread_axis("threadIdx.x"))
     s[BB].double_buffer()
 
-@autotvm.register_topi_compute(dense, ['cuda'], ['int8'])
+#@autotvm.register_topi_compute(dense, ['cuda'], ['int8'])
+
+@autotvm.register_topi_compute2("dense_int8.cuda")
 def dense_int8(cfg, data, weight, bias=None, out_dtype=None):
     """Dense operator for int8 on CUDA"""
     if out_dtype is None:
@@ -286,7 +304,8 @@ def dense_int8(cfg, data, weight, bias=None, out_dtype=None):
     return matmul
 
 
-@autotvm.register_topi_schedule(generic.schedule_dense, ['cuda', 'gpu'], ['int8'])
+#@autotvm.register_topi_schedule(generic.schedule_dense, ['cuda', 'gpu'], ['int8'])
+@autotvm.register_topi_schedule2("dense_int8.cuda")
 def schedule_dense_int8(cfg, outs):
     """Dense schedule for int8 on CUDA"""
     s = tvm.create_schedule([x.op for x in outs])

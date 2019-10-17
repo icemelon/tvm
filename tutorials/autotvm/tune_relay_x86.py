@@ -136,15 +136,18 @@ def tune_kernels(tasks,
         prefix = "[Task %2d/%2d] " % (i+1, len(tasks))
 
         # converting conv2d tasks to conv2d_NCHWc tasks
-        op_name = tsk.workload[0]
-        if op_name == 'conv2d':
-            func_create = 'topi_x86_conv2d_NCHWc'
-        elif op_name == 'depthwise_conv2d_nchw':
-            func_create = 'topi_x86_depthwise_conv2d_NCHWc_from_nchw'
+        task_name = tsk.workload[0]
+        if task_name.startswith('conv2d'):
+            #func_create = 'topi_x86_conv2d_NCHWc'
+            task_name = "conv2d_NCHWc.x86"
         else:
-            raise ValueError("Tuning {} is not supported on x86".format(op_name))
+            continue
+        # elif op_name == 'depthwise_conv2d_nchw':
+        #     func_create = 'topi_x86_depthwise_conv2d_NCHWc_from_nchw'
+        # else:
+        #     raise ValueError("Tuning {} is not supported on x86".format(op_name))
 
-        task = autotvm.task.create(func_create, args=tsk.args,
+        task = autotvm.task.create(task_name, args=tsk.args,
                                    target=target, template_key='direct')
         task.workload = tsk.workload
 
@@ -192,7 +195,6 @@ def tune_and_evaluate(tuning_opt):
                                               params=params, ops=(relay.op.nn.conv2d,))
 
     # run tuning tasks
-    print("Tuning...")
     tune_kernels(tasks, **tuning_opt)
     tune_graph(mod["main"], data_shape, log_file, graph_opt_sch_file)
 
