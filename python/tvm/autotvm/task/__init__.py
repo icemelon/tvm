@@ -26,7 +26,8 @@ from .task import Task, create, register, template, get_config, args_to_workload
 from .space import ConfigSpace, ConfigEntity
 from .code_hash import attach_code_hash, attach_code_hash_to_arg
 from .dispatcher import dispatcher, DispatchContext, ApplyConfig, ApplyHistoryBest, \
-    FallbackContext, clear_fallback_cache, ApplyGraphBest
+    FallbackContext, clear_fallback_cache, ApplyGraphBest, ApplyHistoryApprox, \
+    ApproxMode
 
 from .topi_integration import register_topi_compute, register_topi_schedule, \
     TaskExtractEnv
