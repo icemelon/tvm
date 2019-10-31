@@ -356,6 +356,161 @@ class ApplyHistoryBest(DispatchContext):
             key = (k, workload)
             self._best_user_defined[key] = cfg
 
+class ApproxMode(object):
+    LOWER = 1
+    CLOSEST = 2
+
+class ApplyHistoryApprox(ApplyHistoryBest):
+    """
+    Apply the history best config
+
+    Parameters
+    ----------
+    records : str or iterator of (MeasureInput, MeasureResult)
+        Collection of tuning records.
+        If is str, then it should be the filename of a records log file.
+                   Each row of this file is an encoded record pair.
+        Otherwise, it is an iterator.
+    """
+    def __init__(self, records, mode=ApproxMode.LOWER):
+        super(ApplyHistoryApprox, self).__init__(records)
+        assert mode in (ApproxMode.LOWER, ApproxMode.CLOSEST)
+        self.approx_mode = mode
+
+    def _query_inside(self, target, workload):
+        if target is None:
+            raise RuntimeError("Need a target context to find the history best. "
+                               "Hint: If your target is llvm, use `with tvm.target.create('llvm'):`"
+                               " above the dispatcher call. So does other target. ")
+
+        # first try matching by model
+        key = (target.model, workload)
+        if key in self._best_user_defined:
+            return self._best_user_defined[key]
+        if key in self.best_by_model:
+            return self.best_by_model[key][0].config
+
+        # then try matching by target key
+        for k in target.keys:
+            key = (k, workload)
+            if key in self._best_user_defined:
+                return self._best_user_defined[key]
+            if key in self.best_by_targetkey:
+                return self.best_by_targetkey[key][0].config
+
+        # then try to find a best approximate
+        def check_diff(key):
+            tgt, wk = key
+            if tgt != target.model and tgt not in target.keys:
+                return True
+            diff = False
+            for i, item in enumerate(wk):
+                if type(item) != type(workload[i]):
+                    return True
+                if isinstance(item, tuple):
+                    if len(item) != len(workload[i]):
+                        return True
+                elif item != workload[i]:
+                    # items that are non tensor shape mismatch
+                    return True
+
+        # print('query approx for', workload)
+        query_shapes = self._get_tensor_shapes(workload)
+        best_key = None
+
+        for key in self._best_user_defined:
+            if check_diff(key):
+                continue
+            if self.approx_mode == ApproxMode.LOWER:
+                best_key = self._update_approximate_lower(query_shapes, key, best_key)
+            elif self.approx_mode == ApproxMode.CLOSEST:
+                best_key = self._update_approximate_closest(query_shapes, key, best_key)
+
+        for key in self.best_by_targetkey:
+            if check_diff(key):
+                continue
+            if self.approx_mode == ApproxMode.LOWER:
+                best_key = self._update_approximate_lower(query_shapes, key, best_key)
+            elif self.approx_mode == ApproxMode.CLOSEST:
+                best_key = self._update_approximate_closest(query_shapes, key, best_key)
+
+        if best_key is not None:
+            best_key = best_key[0]
+            logger.warning(f"ApplyHistoryApprox: Use approximate config from {best_key}")
+            if best_key in self._best_user_defined:
+                return self._best_user_defined[best_key]
+            return self.best_by_targetkey[best_key][0].config
+
+        return None
+
+    def update(self, target, workload, cfg):
+        model = target.model
+        key = (model, workload)
+        self._best_user_defined[key] = cfg
+
+        for k in target.keys:
+            key = (k, workload)
+            self._best_user_defined[key] = cfg
+
+    def _get_tensor_shapes(self, workload):
+        ret = []
+        for token in workload:
+            if isinstance(token, tuple):
+                shape = token[:-1]
+                ret.append(shape)
+        return ret
+
+    def _update_approximate_lower(self, query_shapes, key, best_key):
+        key_shapes = self._get_tensor_shapes(key[1])
+
+        # check if the shape is larger than the query shape
+        large = False
+        for qs, ks in zip(query_shapes, key_shapes):
+            for j in range(len(qs)):
+                if ks[j] > qs[j]:
+                    large = True
+                    break
+        if large:
+            return best_key
+        # print('- candidate:', key)
+
+        # compare with the current best key
+        if best_key is None:
+            # print('- new best key:', key)
+            return (key, key_shapes)
+        best_shapes = best_key[1]
+        best_dist = 0
+        key_dist = 0
+        for qs, ks, bs in zip(query_shapes, key_shapes, best_shapes):
+            for j in range(len(qs)):
+                key_dist += qs[j] - ks[j]
+                best_dist += qs[j] - bs[j]
+        if key_dist < best_dist:
+            # print('- new best key: %s (dist: %s), origin best key: %s (dist: %s)' %
+            #       (key, key_dist, best_key[0], best_dist))
+            return (key, key_shapes)
+        return best_key
+
+    def _update_approximate_closest(self, query_shapes, key, best_key):
+        # print('- candidate:', key)
+        key_shapes = self._get_tensor_shapes(key[1])
+        if best_key is None:
+            # print('- new best key:', key)
+            return (key, key_shapes)
+
+        best_shapes = best_key[1]
+        best_dist = 0
+        key_dist = 0
+        for qs, ks, bs in zip(query_shapes, key_shapes, best_shapes):
+            for j in range(len(qs)):
+                key_dist += abs(ks[j] - qs[j])
+                best_dist += abs(bs[j] - qs[j])
+        if key_dist < best_dist:
+            # print('- new best key: %s (dist: %s), origin best key: %s (dist: %s)' %
+            #       (key, key_dist, best_key[0], best_dist))
+            return (key, key_shapes)
+        return best_key
+
 
 class FallbackContext(DispatchContext):
     """
