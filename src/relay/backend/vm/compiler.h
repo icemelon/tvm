@@ -83,6 +83,8 @@ struct VMCompilerContext {
   std::vector<CachedFunc> cached_funcs;
   // The functions that have been lowered.
   std::unordered_map<tir::PrimFunc, size_t, ObjectPtrHash, ObjectPtrEqual> seen_funcs;
+  // Tail recursive calls
+  std::unordered_set<Call, ObjectPtrHash> tail_recursions;
 };
 
 class VMCompiler : public runtime::ModuleNode {

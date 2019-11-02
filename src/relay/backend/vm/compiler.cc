@@ -245,6 +245,70 @@ int GetFallbackDevice() {
   return fallback_dev->value;
 }
 
+// Find tail recursive calls inside a function
+struct TailRecursion : ExprVisitor {
+  // Target recursive function
+  const GlobalVar& var;
+
+  // Whether the function is tail recursive
+  bool is_tail_recursive{true};
+
+  // All tail recursive call sites
+  std::unordered_set<Call, ObjectPtrHash> tail_calls;
+
+  TailRecursion(const GlobalVar& var):
+    var(var), tail_calls() {}
+
+  void VisitExpr_(const LetNode* let_node) {
+    if (auto body = let_node->body.as<VarNode>()) {
+      auto body_var = GetRef<Var>(body);
+      // If body is var we check it's the same as bind var
+      // Example: let x = expr in x, then we recurse inside expr
+      // to find tail call sites.
+      if (let_node->var.same_as(body_var)) {
+        // find call sites in value
+        this->VisitExpr(let_node->value);
+      } else {
+        // the body var and bind var are not the same, so definitely not tail recursive
+        // example: let a = expr in b, this is definitely not tail recursive. But I don't
+        // think such form is possible to appear.
+        CHECK(false) << "body and bind does not match, no tail recursive\n";
+      }
+    } else {
+      // If it's not a var we know in the body there are other computations to compute return values
+      // Example: let x = expr1 in expr2
+      this->VisitExpr(let_node->body);
+    }
+  }
+
+  void VisitExpr_(const CallNode* call_node) {
+    Expr op = call_node->op;
+    auto call = GetRef<Call>(call_node);
+
+    if (auto callee_node = op.as<GlobalVarNode>()) {
+      auto callee = GetRef<GlobalVar>(callee_node);
+      if (!callee.same_as(var)) {
+        is_tail_recursive = false;
+      } else {
+        auto call = GetRef<Call>(call_node);
+        this->tail_calls.insert(call);
+      }
+    } else {
+      is_tail_recursive = false;
+    }
+  }
+};
+
+std::unordered_set<Call, ObjectPtrHash> FindTailRecursion(const GlobalVar& var, const Function& func) {
+  auto tail_recursion = TailRecursion(var);
+  tail_recursion.VisitExpr(func);
+  if (!tail_recursion.is_tail_recursive) {
+    // Clear other tail callls sine the function is not fully tail recursive
+    tail_recursion.tail_calls.clear();
+  }
+  return tail_recursion.tail_calls;
+}
+
 class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
  public:
   VMFunctionCompiler(VMCompilerContext* context, TargetsMap targets, Target target_host,
@@ -718,6 +782,18 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
         auto arity = func->params.size();
         Emit(Instruction::AllocClosure(it->second, arity, args_registers, NewRegister()));
       } else {
+        auto call = GetRef<Call>(call_node);
+        auto find_it = this->context_->tail_recursions.find(call);
+        if (find_it != this->context_->tail_recursions.end()) {
+          // Handle tail recursion
+          // Override parameters
+          for (size_t i = 0; i < func->params.size(); ++i) {
+            Emit(Instruction::Move(args_registers[i], var_register_map_[func->params[i]]));
+          }
+
+          Emit(Instruction::Goto(-(instructions_.size())));
+          return;
+        }
         Emit(Instruction::Invoke(it->second, args_registers, NewRegister()));
       }
     } else if (auto constructor_node = op.as<ConstructorNode>()) {
@@ -926,6 +1002,7 @@ void VMCompiler::Lower(IRModule mod, const TargetsMap& targets, const tvm::Targe
     auto gvar = named_func.first;
     if (auto* n = named_func.second.as<FunctionNode>()) {
       auto func = GetRef<Function>(n);
+      context_.tail_recursions = FindTailRecursion(gvar, func);
       VMFunctionCompiler func_compiler(&context_, targets_, target_host_, expr_device_map);
       auto vm_func = func_compiler.Compile(gvar, func);
 

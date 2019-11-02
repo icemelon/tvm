@@ -795,5 +795,30 @@ def test_constant_shape_with_external_codegen():
     assert "shape_func" in opt_mod.astext(False)
 
 
+def test_tail_recursion():
+    loop = relay.GlobalVar('loop')
+    sb = relay.ScopeBuilder()
+
+    x = relay.var('x', shape=())
+    y = relay.var('y', shape=())    
+    with sb.if_scope(relay.op.less(x, relay.const(10.0))):
+        x1 = x + relay.const(1.0)
+        y1 = y * relay.const(2.0)
+        x2 = relay.Call(loop, [x1, y1])
+        sb.ret(x2)
+    with sb.else_scope():
+        sb.ret(y)
+
+    body = sb.get()
+    f = relay.Function([x, y], body, ret_type=relay.ty.TensorType([]))
+
+    # module definition
+    mod = tvm.IRModule()
+    mod[loop] = f
+    one = relay.const(1.0)
+    mod['main'] = relay.Function([], relay.Call(loop, [one, one]))
+    check_result([], np.asarray(512.0), mod)
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
