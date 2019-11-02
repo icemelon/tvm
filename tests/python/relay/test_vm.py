@@ -622,5 +622,46 @@ def test_loop_free_var():
         mod["main"] = relay.Function(relay.analysis.free_vars(ret), ret)
         check_result(args, expected, mod=mod)
 
+def create_exec(f, target="llvm", params=None):
+    from tvm.relay import vm as _vm
+    if isinstance(f, relay.Expr):
+        mod = relay.Module()
+        mod["main"] = f
+        executable = _vm.compile(mod, target=target, params=params)
+        return executable
+    else:
+        assert isinstance(f, tvm.IRModule), "expected mod as relay.Module"
+        executable = _vm.compile(f, target=target, params=params)
+        return executable
+
+def test_tail_recursion():
+    loop = relay.GlobalVar('loop')
+    sb = relay.ScopeBuilder()
+
+    x = relay.var('x', shape=())
+    y = relay.var('y', shape=())    
+    with sb.if_scope(relay.op.less(x, relay.const(10.0))):
+        x1 = x + relay.const(1.0)
+        y1 = y * relay.const(2.0)
+        x2 = relay.Call(loop, [x1, y1])
+        sb.ret(x2)
+    with sb.else_scope():
+        sb.ret(y)
+
+    body = sb.get()
+    f = relay.Function([x, y], body)
+
+    # module definition
+    mod = tvm.IRModule()
+    mod[loop] = f
+
+    print("Mod {}".format(mod))
+    one = relay.const(1.0)
+    mod['main'] = relay.Function([], relay.Call(loop, [one, one]))
+    res = create_exec(mod)
+    print("Opcode: \n{}".format(res.bytecode))
+    res = veval(mod)
+    tvm.testing.assert_allclose(res.asnumpy(), 512.0)
+
 if __name__ == "__main__":
     pytest.main([__file__])
