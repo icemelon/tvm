@@ -44,10 +44,14 @@ def _convert(arg, cargs):
             _convert(field, field_args)
         cargs.append(_obj.tuple_object(field_args))
     else:
-        raise "unsupported type"
+        import pdb
+        pdb.set_trace()
+        raise "unsupported type {}".format(arg)
 
 
 def convert(args):
+    import pdb
+    pdb.set_trace()
     cargs = []
     for arg in args:
         _convert(arg, cargs)
@@ -287,6 +291,8 @@ class VirtualMachine(object):
         if kwargs:
             func_params = self._exec.get_function_params(func_name)
             new_args = [None] * len(func_params)
+            import pdb
+            pdb.set_trace()
             assert len(args) + len(kwargs) == len(func_params)
             for k in kwargs:
                 idx = func_params.index(k)

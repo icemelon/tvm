@@ -853,36 +853,79 @@ void VMCompiler::SetParam(const std::string& name, runtime::NDArray data_in) {
   params_[name] = data_in;
 }
 
+class BindParams  {
+ public:
+  explicit BindParams(const std::unordered_map<std::string, runtime::NDArray>& params)
+      : params_(params) {}
+
+  relay::Function BindParamsByName(
+      relay::Function func,
+      const std::unordered_map<std::string, runtime::NDArray>& params) {
+    std::unordered_map<std::string, relay::Var> name_dict;
+    std::unordered_set<relay::Var, NodeHash, NodeEqual> repeat_var;
+    for (auto arg : func->params) {
+      const auto &name = arg->name_hint();
+      if (name_dict.count(name)) {
+        repeat_var.insert(arg);
+      } else {
+        name_dict[name] = arg;
+      }
+    }
+    std::unordered_map<relay::Var, Expr, NodeHash, NodeEqual> bind_dict;
+    for (auto &kv : params) {
+      if (name_dict.count(kv.first) == 0) {
+        continue;
+      }
+      auto arg = name_dict.at(kv.first);
+      if (repeat_var.count(arg)) {
+        LOG(FATAL) << "Multiple args in the function have name " << kv.first;
+      }
+      bind_dict[arg] = ConstantNode::make(kv.second);
+    }
+    Expr bound_expr = relay::Bind(func, bind_dict);
+    Function ret = Downcast<Function>(bound_expr);
+    CHECK(ret.defined())
+        << "The returning type is expected to be a Relay Function."
+        << "\n";
+    return ret;
+  }
+
+
+/*
+
+Function FunctionNode::make(tvm::Array<Var> params,
+                            Expr body,
+                            Type ret_type,
+                            tvm::Array<TypeVar> type_params,
+                            tvm::Attrs attrs) {
+  NodePtr<FunctionNode> n = make_node<FunctionNode>();
+
+*/
+  // Expr VisitExpr_(const FunctionNode* op) {
+  //   auto f = GetRef<Function>(op);
+  //   auto it = visited.find(f);
+  //   if (it != visited.end()) {
+  //     return it->second;
+  //   }
+
+  //   std::cout << "Bind Visit " << AsText(f, false) << "\n";
+  //   auto func_body = ExprMutator::VisitExpr(f->body);
+  //   auto new_f = FunctionNode::make(FreeVars(func_body), func_body, f->ret_type, f->type_params, f->attrs);
+  //   auto res = BindParamsByName(new_f, params_);
+  //   visited[f] = res;
+  //   return res;
+  // }
+
+ private:
+  std::unordered_map<std::string, runtime::NDArray> params_;
+  std::unordered_map<Expr, Expr, NodeHash, NodeEqual> visited;
+};
+
 relay::Function VMCompiler::BindParamsByName(
     relay::Function func,
     const std::unordered_map<std::string, runtime::NDArray>& params) {
-  std::unordered_map<std::string, relay::Var> name_dict;
-  std::unordered_set<relay::Var, NodeHash, NodeEqual> repeat_var;
-  for (auto arg : func->params) {
-    const auto &name = arg->name_hint();
-    if (name_dict.count(name)) {
-      repeat_var.insert(arg);
-    } else {
-      name_dict[name] = arg;
-    }
-  }
-  std::unordered_map<relay::Var, Expr, NodeHash, NodeEqual> bind_dict;
-  for (auto &kv : params) {
-    if (name_dict.count(kv.first) == 0) {
-      continue;
-    }
-    auto arg = name_dict.at(kv.first);
-    if (repeat_var.count(arg)) {
-      LOG(FATAL) << "Multiple args in the function have name " << kv.first;
-    }
-    bind_dict[arg] = ConstantNode::make(kv.second);
-  }
-  Expr bound_expr = relay::Bind(func, bind_dict);
-  Function ret = Downcast<Function>(bound_expr);
-  CHECK(ret.defined())
-      << "The returning type is expected to be a Relay Function."
-      << "\n";
-  return ret;
+      std::cout << "BindParams " << AsText(func, false) << "\n";
+      return Downcast<Function>(BindParams(params).BindParamsByName(func, params));
 }
 
 void VMCompiler::Compile(Module mod,
@@ -891,9 +934,27 @@ void VMCompiler::Compile(Module mod,
   CHECK_EQ(targets.size(), 1)
     << "Currently VM compiler doesn't support heterogeneous compilation";
   if (params_.size()) {
-    auto f = BindParamsByName(mod->Lookup("main"), params_);
-    auto gvar = mod->GetGlobalVar("main");
-    mod->Add(gvar, f);
+    auto functions = mod->functions;
+
+    // for (auto p : functions) {
+    {
+      // std::cout << "Binding " << p.first << "\n";
+      auto gvar = mod->GetGlobalVar("foreach");
+      auto f = BindParamsByName(mod->Lookup("foreach"), params_);
+      std::cout << "After bind params " << AsText(f, false) << "\n";
+      mod->Add(gvar, f);
+    }
+
+    {
+      // std::cout << "Binding " << p.first << "\n";
+      auto gvar = mod->GetGlobalVar("main");
+      auto f = BindParamsByName(mod->Lookup("main"), params_);
+      std::cout << "After bind params " << AsText(f, false) << "\n";
+      mod->Add(gvar, f);
+    }
+
+  } else {
+    std::cout << "Params empty\n";
   }
 
   InitVM();
@@ -902,7 +963,6 @@ void VMCompiler::Compile(Module mod,
 
   // Run the optimizations necessary to target the VM.
   context_.module = OptimizeModule(mod, targets_);
-
   // Populate the global map.
   //
   // This maps global variables to a global index

@@ -43,10 +43,10 @@ def check_result(args, expected_result, mod=None):
         rts_result = vm.evaluate()(*args)
         tvm.testing.assert_allclose(expected_result, rts_result.asnumpy())
 
-def veval(f, *args, ctx=tvm.cpu(), target="llvm"):
+def veval(f, *args, ctx=tvm.cpu(), target="llvm", params=None):
     if isinstance(f, relay.Expr):
         mod = relay.Module()
-        mod["main"] = f
+        mod["main"] = f        
         exe = relay.vm.compile(mod, target)
         vm = relay.vm.VirtualMachine(exe)
         vm.init(ctx)
@@ -54,9 +54,12 @@ def veval(f, *args, ctx=tvm.cpu(), target="llvm"):
     else:
         assert isinstance(f, relay.Module), "expected expression or module"
         mod = f
-        exe = relay.vm.compile(mod, target)
+        print("Compiling")
+        exe = relay.vm.compile(mod, target, params=params)
         vm = relay.vm.VirtualMachine(exe)
         vm.init(ctx)
+        vm.set_inputs('main', *args)
+        print("Running")
         ret = vm.invoke("main", *args)
         return ret
 
@@ -615,6 +618,82 @@ def test_tail_recursion():
     print("Opcode: \n{}".format(res.bytecode))
     res = veval(mod)
     tvm.testing.assert_allclose(res.asnumpy(), 512.0)
+
+import mxnet as mx
+from mxnet import gluon
+
+def import_mxnet_model(fname, num_states):
+    ctx = mx.context.cpu()
+    data_names = ['data0']
+    for i in range(num_states):
+        data_names.append('data%s' % (i+1))
+
+    model_data_dir = os.path.dirname(os.path.realpath(__file__))
+    net = gluon.nn.SymbolBlock.imports("%s/model_zoo_data/%s-symbol.json.data" % (model_data_dir, fname), data_names,
+                                       "%s/model_zoo_data/%s-0001.params.data" % (model_data_dir, fname), ctx=ctx)
+    net.hybridize()
+    return net
+
+def infer_type(node):
+    """A method to infer the type of an intermediate node in the relay graph."""
+    mod = node if isinstance(node, _module.Module) else _module.Module.from_expr(node)
+    mod = _transform.InferType()(mod)
+    entry = mod["main"]
+    return entry if isinstance(node, _expr.Function) else entry.body
+
+def helper_rnn(cell_type):
+    input_size = 128
+    hidden_size = 128
+    batch, seq_len = 1, tvm.var('seq_len')
+    data_shape= (seq_len, batch, input_size)
+    state_shape = (batch, hidden_size)
+    num_states = 2 if cell_type == 'lstm' else 1
+    mx_net = import_mxnet_model("%s_i128_h128" % cell_type, num_states)
+
+    shapes = {'data': data_shape}
+    mx_input_syms = []
+    mx_input_syms.append(mx.sym.Variable("data"))
+    for i in range(num_states):
+        shapes['state%s' % i] = state_shape
+        mx_input_syms.append(mx.sym.Variable("state%s" % i))
+
+    mod = relay.module.Module()
+    relay_net, params_new = relay.frontend.from_mxnet(mx_net, shape=shapes, input_symbols=mx_input_syms, module=mod)
+    params = params_new.items()
+
+    loop = None
+    for v, func in mod.functions.items():
+        if v.name_hint == 'loop':
+            loop = v
+    inputs = [relay.var('data')]
+    for i in range(num_states):
+        inputs.append(relay.var('state%s' % i))
+    for name, _ in params:
+        inputs.append(relay.var(name))
+    mod['main'] = relay.Function(inputs, relay.Call(relay_net, inputs))
+    import os
+    print("pid {}".format(os.getpid()))
+    input("hi")
+
+    l = 5
+    data_v = np.random.rand(l, batch, 128).astype('float32')
+    states_v = [np.random.rand(*state_shape).astype('float32') for _ in range(num_states)]
+    print('eval vm')
+    import pdb
+    # pdb.set_trace()
+    aas = [data_v] + states_v 
+    res = veval(mod, *aas, params=params_new)
+    res = vmobj_to_list(res)
+    print("Relay result is {}".format(res))
+
+    mx_inputs = [mx.nd.array(x) for x in [data_v, *states_v]]
+    mx_outputs = mx_net(*mx_inputs)
+    print("======== MXNet result ==========")
+    for o in mx_outputs:
+        print("MXNet output : {}".format(o.asnumpy()))
+
+def test_rnn():
+    helper_rnn('lstm')
 
 if __name__ == "__main__":
     test_id()

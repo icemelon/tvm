@@ -354,30 +354,93 @@ TVM_REGISTER_API("relay._analysis.post_order_visit")
       });
   });
 
+Expr Bind(const Expr& expr, const tvm::Map<Var, Expr>& args_map);
+
 // Implement bind.
 class ExprBinder : public ExprMutator, PatternMutator {
  public:
-  explicit ExprBinder(const tvm::Map<Var, Expr>& args_map)
-    : args_map_(args_map) {
+  explicit ExprBinder(const tvm::Map<Var, Expr>& args_map) {
+    for (auto it : args_map) {
+      args_map_[it.first->name_hint()] = it.second;
+      args_map2_[it.first] = it.second;      
+    }
+  }
+
+  Expr BindTwice(Expr op) {
+    auto op1 = VisitExpr(op);
+    // auto op2 = VisitExpr(op1);
+    return op1;
   }
 
   Expr VisitExpr_(const LetNode* op) final {
-    CHECK(!args_map_.count(op->var))
+    CHECK(!args_map_.count(op->var->name_hint()))
         << "Cannot bind an internel variable in let";
     return ExprMutator::VisitExpr_(op);
   }
 
   Expr VisitExpr_(const FunctionNode* op) final {
+    std::cout << "Visit Func " << AsText(GetRef<Function>(op), false) << "\n";
+    bool rebind = false;
+    Array<Var> new_params;
     for (Var param : op->params) {
-      CHECK(!args_map_.count(param))
-          << "Cannnot bind an internal function parameter";
+      if (args_map_.count(param->name_hint()) > 0) {
+        rebind = true;
+      } else {
+        new_params.push_back(param);
+      }
+    }
+    if (rebind) {
+      auto new_body = Bind(op->body, args_map2_);
+      std::cout << "Visit Func End " << AsText(GetRef<Function>(op), false) << "\n";      
+      return FunctionNode::make(new_params, new_body, op->ret_type, op->type_params, op->attrs);
     }
     return ExprMutator::VisitExpr_(op);
   }
 
+  Expr VisitExpr_(const CallNode* op) final {
+    std::cout << "Visit Call " << AsText(GetRef<Call>(op), false) << "\n";
+    auto func = op->op.as<FunctionNode>();
+    auto gv_node = op->op.as<GlobalVarNode>();
+      Array<Expr> new_args;
+      for (size_t i = 0; i < op->args.size(); ++i) {
+        auto new_arg = ExprMutator::VisitExpr(op->args[i]);
+        auto n = op->args[i].as<VarNode>();
+        if (n) {
+          auto var = GetRef<Var>(n);
+          std::cout << "call arg " << i << ": " << var << "\n";
+          auto it = args_map_.find(var->name_hint());
+          if (it != args_map_.end()) {
+            std::cout << "Line 404\n";
+            if (func) {
+              args_map_.emplace(func->params[i]->name_hint(), it->second);
+              args_map2_.emplace(func->params[i], it->second);
+              std::cout << "Emplace " << func->params[i] << "\n";
+            } else if (gv_node) {
+              // new_args.push_back(new_arg);
+            } else {
+              std::cout << "Line 409 " << op->op << "\n";
+              new_args.push_back(new_arg);
+            }
+          } else {
+            new_args.push_back(new_arg);
+          }
+        } else {
+            new_args.push_back(new_arg);
+        }
+      }
+
+    if (func) {
+      auto new_f = ExprMutator::VisitExpr(op->op);
+      std::cout << "Visit Call End " << AsText(GetRef<Call>(op), false) << "\n";        
+      return CallNode::make(new_f, new_args, op->attrs, op->type_args);
+    } else {
+      return CallNode::make(op->op, new_args, op->attrs, op->type_args);
+    }
+  }
+
   Expr VisitExpr_(const VarNode* op) final {
     auto id = GetRef<Var>(op);
-    auto it = args_map_.find(id);
+    auto it = args_map_.find(id->name_hint());
     if (it != args_map_.end()) {
       return (*it).second;
     } else {
@@ -395,13 +458,15 @@ class ExprBinder : public ExprMutator, PatternMutator {
   }
 
   Var VisitVar(const Var& v) final {
-    CHECK(!args_map_.count(v))
+    CHECK(!args_map_.count(v->name_hint()))
       << "Cannnot bind an internal pattern variable";
     return v;
   }
 
  private:
-  const tvm::Map<Var, Expr>& args_map_;
+  std::unordered_map<std::string, Expr> args_map_;
+  std::unordered_map<Var, Expr, NodeHash, NodeEqual> args_map2_;  
+  //const tvm::Map<Var, Expr>& args_map_;
 };
 
 Expr Bind(const Expr& expr, const tvm::Map<Var, Expr>& args_map) {
@@ -439,7 +504,7 @@ Expr Bind(const Expr& expr, const tvm::Map<Var, Expr>& args_map) {
     CHECK_EQ(FreeVars(expr).size(), FreeVars(ret).size());
     return std::move(ret);
   } else {
-    return ExprBinder(args_map).VisitExpr(expr);
+    return ExprBinder(args_map).BindTwice(expr);
   }
 }
 
