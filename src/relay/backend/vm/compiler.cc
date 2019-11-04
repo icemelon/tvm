@@ -47,6 +47,7 @@
 #include "../../pass/pass_util.h"
 #include "../../op/op_common.h"
 #include "compiler.h"
+#include "liveness.h"
 
 namespace tvm {
 namespace relay {
@@ -841,7 +842,7 @@ void VMCompiler::Compile(Module mod,
 
     size_t func_index = context_.global_map.at(gvar);
     CHECK(func_index < exec_->functions.size());
-    exec_->functions[func_index] = vm_func;
+    exec_->functions[func_index] = Liveness(vm_func);
   }
 
 #if USE_RELAY_DEBUG

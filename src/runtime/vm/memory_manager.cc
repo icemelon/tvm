@@ -82,7 +82,7 @@ NDArray StorageObj::AllocNDArray(size_t offset, std::vector<int64_t> shape, DLDa
   container->deleter = StorageObj::Deleter;
   size_t needed_size = GetDataSize(container->dl_tensor);
   // TODO(@jroesch): generalize later to non-overlapping allocations.
-  CHECK(needed_size == this->buffer.size)
+  CHECK_LE(needed_size, this->buffer.size)
     << "size mistmatch required " << needed_size << " found " << this->buffer.size;
   this->IncRef();
   container->manager_ctx = reinterpret_cast<void*>(this);

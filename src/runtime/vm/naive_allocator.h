@@ -43,7 +43,7 @@ class NaiveAllocator final : public Allocator {
     buf.size = nbytes;
     buf.data = DeviceAPI::Get(ctx_)->AllocDataSpace(ctx_, nbytes, alignment, type_hint);
     used_memory_.fetch_add(nbytes, std::memory_order_relaxed);
-    DLOG(INFO) << "allocate " << nbytes << " B, used memory " << used_memory_ << " B";
+    LOG(INFO) << "allocate " << nbytes << " B, used memory " << used_memory_ << " B";
     return buf;
   }
 

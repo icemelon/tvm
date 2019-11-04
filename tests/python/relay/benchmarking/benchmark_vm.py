@@ -84,7 +84,7 @@ def benchmark_execution(mod,
                                        params, target, ctx, dtype)
     vm_out = get_vm_output(mod, tvm.nd.array(data.astype(dtype)), params,
                            target, ctx, dtype)
-    tvm.testing.assert_allclose(vm_out, tvm_out, rtol=1e-5, atol=1e-5)
+    tvm.testing.assert_allclose(vm_out, tvm_out, rtol=1e-3, atol=1e-3)
 
 
 def test_mlp():

@@ -288,6 +288,7 @@ void GraphRuntime::SetupStorage() {
     pool_entry[sid].device_type = device_type;
   }
 
+  int64_t totla_size = 0;
   // Allocate the space.
   for (const auto& pit : pool_entry) {
     std::vector<int64_t> shape;
@@ -301,7 +302,10 @@ void GraphRuntime::SetupStorage() {
     shape.push_back(static_cast<int64_t>(pit.size + 3) / 4);
     storage_pool_.push_back(
         NDArray::Empty(shape, DLDataType{kDLFloat, 32, 1}, ctx));
+    totla_size += pit.size;
   }
+
+  LOG(INFO) << "totla_size:::::  " << totla_size << " bytes";
 
   // Assign the pooled entries. A unified memory pool is used to simplifiy
   // memory assignment for each node entry. The allocated memory on each device

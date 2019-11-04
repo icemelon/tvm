@@ -582,9 +582,9 @@ void InstructionPrint(std::ostream& os, const Instruction& instr) {
       break;
     }
     case Opcode::AllocStorage: {
-      os << "alloc_storage " <<
-        instr.dst << " " <<
-        instr.alloc_storage.allocation_size << " " <<
+      os << "alloc_storage $" <<
+        instr.dst << " $" <<
+        instr.alloc_storage.allocation_size << " $" <<
         instr.alloc_storage.alignment << " " <<
         TVMType2String(instr.alloc_storage.dtype_hint);
       break;
@@ -653,12 +653,18 @@ PackedFunc VirtualMachine::GetFunction(const std::string& name,
       }
       CHECK_EQ(empty_slots.size(), args.size() - 1)
           << "The number of provided parameters doesn't match the number of arguments";
+      size_t arg_size = 0;
       for (int i = 1; i < args.size(); ++i) {
         ObjectRef obj = CopyTo(args[i], ctx);
+        if (const TensorObj* t_obj = obj.as<TensorObj>()) {
+          auto tensor = t_obj->data;
+          arg_size += GetDataSize(*(tensor.operator->()));
+        }
         func_args[empty_slots[i - 1]] = obj;
       }
 
       *rv = this->Invoke(vm_func, func_args);
+      LOG(INFO) << "sizee:::: " << this->const_size_ + arg_size;
     });
   } else if (name == "init") {
     return PackedFunc([sptr_to_self, this](TVMArgs args, TVMRetValue* rv) {
@@ -730,7 +736,7 @@ ObjectRef VirtualMachine::Invoke(const VMFunction& func, const std::vector<Objec
   RunLoop();
   // TODO(wweic) ctx could be obtained from the ctxs list.
   auto alloc = MemoryManager::Global()->GetAllocator(ctxs[0]);
-  DLOG(INFO) << "Memory used: " << alloc->UsedMemory() << " B";
+  LOG(INFO) << "Memory used: " << alloc->UsedMemory() << " B";
   return return_register;
 }
 
@@ -850,6 +856,10 @@ void VirtualMachine::RunLoop() {
       }
       case Opcode::LoadConst: {
         auto constant_obj = exec->constants[instr.const_index];
+        if (const TensorObj* obj = constant_obj.as<TensorObj>()) {
+          auto tensor = obj->data;
+          const_size_ += GetDataSize(*(tensor.operator->()));
+        }
         // We cache the allocated object in the constant pool. To measure, the
         // first iteration will set the pool up. The other iterations will
         // directly reuse the allocated objects.

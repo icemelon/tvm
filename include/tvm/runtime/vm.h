@@ -780,6 +780,7 @@ class VirtualMachine : public runtime::ModuleNode {
    * object to avoid rellocation of constants during inference.
    */
   std::vector<ObjectRef> const_pool_;
+  size_t const_size_{0};
 };
 
 }  // namespace vm
