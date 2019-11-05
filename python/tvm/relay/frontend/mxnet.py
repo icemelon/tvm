@@ -912,6 +912,18 @@ def _mx_rnn_layer(inputs, attrs):
         next_h = out_gate * _activation_map["tanh"](next_c)
         return next_h, [next_h, next_c]
 
+    def _lstm_cell_first_layer(i2h, states, h2h_weight, h2h_bias):
+        h2h = _op.nn.bias_add(_op.nn.dense(states[0], h2h_weight), h2h_bias, axis=-1)
+        gates = i2h + h2h
+        slice_gates = _op.split(gates, indices_or_sections=4, axis=1)
+        in_gate = _activation_map["sigmoid"](slice_gates[0])
+        forget_gate = _activation_map["sigmoid"](slice_gates[1])
+        in_transform = _activation_map["tanh"](slice_gates[2])
+        out_gate = _activation_map["sigmoid"](slice_gates[3])
+        next_c = forget_gate * states[1] + in_gate * in_transform
+        next_h = out_gate * _activation_map["tanh"](next_c)
+        return next_h, [next_h, next_c]
+
     num_layers = attrs.get_int("num_layers", 1)
     mode = attrs.get_str("mode")
     output_states = attrs.get_bool("state_outputs", False)
@@ -929,6 +941,10 @@ def _mx_rnn_layer(inputs, attrs):
 
     seq_data = inputs[0]
     concat_weight = inputs[1]
+    if isinstance(concat_weight, _expr.Call):
+        assert concat_weight.op.name == "concatenate"
+        concat_weight = concat_weight.args[0]
+
     init_states = inputs[2:]
     expr = _infer_type(seq_data)
     data_shape = expr.checked_type.shape
@@ -959,6 +975,7 @@ def _mx_rnn_layer(inputs, attrs):
     back_weights = []
     back_bias = []
     back_states = []
+
     for i in range(num_layers):
         weights.append([concat_weight[i*2*direct].args[0],
                         concat_weight[i*2*direct + 1].args[0]])
@@ -978,8 +995,18 @@ def _mx_rnn_layer(inputs, attrs):
                 s.append(_op.take(state, _expr.const(i*direct+1, "int32"), axis=0))
             back_states.append(s)
 
-    xs = [_op.take(seq_data, _expr.const(t, "int32"), axis=0) for t in range(seq_len)]
-    for l in range(num_layers):
+    #xs = [_op.take(seq_data, _expr.const(t, "int32"), axis=0) for t in range(seq_len)]
+    i2hs = _op.nn.bias_add(_op.nn.dense(seq_data, weights[0][0]), bias[0][0], axis=-1)
+    if mode == "lstm":
+        outputs = []
+        for t in range(seq_len):
+            i2h = _op.take(i2hs, _expr.const(t, "int32"), axis=0)
+            out, new_states = _lstm_cell_first_layer(i2h, states[0], weights[0][1], bias[0][1])
+            states[0] = new_states
+            outputs.append(out)
+        xs = outputs
+
+    for l in range(1, num_layers):
         outputs = []
         back_outputs = []
         for x in xs:
