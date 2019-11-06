@@ -996,6 +996,9 @@ def _mx_rnn_layer(inputs, attrs):
             back_states.append(s)
 
     #xs = [_op.take(seq_data, _expr.const(t, "int32"), axis=0) for t in range(seq_len)]
+    print(data_shape)
+    assert int(data_shape[1]) == 1
+    seq_data = _op.squeeze(seq_data, axis=(1,))
     i2hs = _op.nn.bias_add(_op.nn.dense(seq_data, weights[0][0]), bias[0][0], axis=-1)
     if mode == "lstm":
         outputs = []
