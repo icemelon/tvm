@@ -82,7 +82,11 @@ def _dimension_constraint():
 def _get_param(params, input_node):
     if isinstance(input_node, _expr.Constant):
         return np.atleast_1d(input_node.data.asnumpy())
-    return params.pop(input_node.name_hint).asnumpy()
+    elif isinstance(input_node, _expr.Var):
+        return params.pop(input_node.name_hint).asnumpy()
+    else:
+        val = _infer_value(input_node, params)
+        return np.atleast_1d(val.asnumpy())
 
 def _get_num_param(params, input_node):
     return _get_param(params, input_node).item()
