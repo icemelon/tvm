@@ -20,7 +20,7 @@ from __future__ import absolute_import
 import tvm
 
 @tvm.tag_scope(tag='softmax_output')
-def softmax(x, axis=-1):
+def default_softmax(x, axis=-1):
     """Perform softmax activation on the data
 
     Parameters
@@ -76,6 +76,24 @@ def softmax(x, axis=-1):
     return tvm.compute(shape, lambda *indices: _normalize(exp, expsum, *indices),
                        name='T_softmax_norm', attrs={"axis" : axis})
 
+@tvm.target.override_native_generic_func("softmax")
+def softmax(x, axis=-1):
+    """Perform softmax activation on the data
+
+    Parameters
+    ----------
+    data : tvm.Tensor
+        can be any dimension
+
+    axis : int
+        channel axis
+
+    Returns
+    -------
+    output : tvm.Tensor
+        output shape is the same as input
+    """
+    return default_softmax(x, axis)
 
 @tvm.tag_scope(tag='log_softmax_output')
 def log_softmax(x):
