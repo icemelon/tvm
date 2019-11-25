@@ -384,3 +384,13 @@ def conv2d_forward(x,
             ins[0],
             ins[1],
             outs[0]), name="y")
+
+def softmax(x, axis=-1):
+    assert axis == -1
+    return _api.extern(
+        x.shape, [x],
+        lambda ins, outs: _intrin.call_packed(
+            "tvm.contrib.cudnn.softmax.forward",
+            ins[0],
+            outs[0],
+            axis), name="y")

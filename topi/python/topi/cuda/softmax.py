@@ -17,8 +17,19 @@
 # pylint: disable=invalid-name, unused-variable, trailing-whitespace
 """Schedule for softmax operator"""
 import tvm
+from tvm.contrib import cudnn
+from .. import nn
 from .. import generic
 from .injective import schedule_injective_from_existing
+from .reduction import schedule_reduce
+
+@nn.softmax.register(["cuda", "gpu"])
+def softmax_cuda(x, axis=-1):
+    target = tvm.target.current_target()
+
+    if axis == -1 and "cudnn" in target.libs:
+        return cudnn.softmax(x, axis)
+    return nn.default_softmax(x, axis)
 
 @generic.schedule_softmax.register(["cuda", "gpu"])
 def schedule_softmax(outs):
@@ -38,6 +49,10 @@ def schedule_softmax(outs):
     outs = [outs] if isinstance(outs, tvm.tensor.Tensor) else outs
     s = tvm.create_schedule([x.op for x in outs])
     softmax = outs[0]
+    
+    target = tvm.target.current_target()
+    if "cudnn" in target.libs and isinstance(softmax.op, tvm.tensor.ExternOp):
+        return generic.schedule_extern(outs)
 
     op_tag = softmax.op.tag
     if op_tag == 'softmax_output':
