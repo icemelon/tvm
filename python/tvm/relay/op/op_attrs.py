@@ -61,6 +61,11 @@ class DenseAttrs(Attrs):
 
 
 @register_relay_attr_node
+class SoftmaxAttrs(Attrs):
+    """Attributes for nn.softmax"""
+
+
+@register_relay_attr_node
 class FIFOBufferAttrs(Attrs):
     """Attributes for nn.fifo_buffer"""
 
