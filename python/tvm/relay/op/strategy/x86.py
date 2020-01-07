@@ -65,13 +65,20 @@ def conv2d_strategy_cpu(attrs, inputs, out_type, target):
     strategy = _op.OpStrategy()
     layout = attrs.data_layout
     dtype = out_type.dtype
-    assert layout in ["NCHW", "NHWC", "NCHWc"]
+
     if layout == "NCHW":
-        strategy.add_implement(wrap_compute_conv2d(topi.x86.conv2d_nchw),
-                               wrap_topi_schedule(topi.x86.schedule_conv2d_nchw))
+        if dtype == "int8":
+            pass
+        else:
+            strategy.add_implement(wrap_compute_conv2d(topi.x86.conv2d_NCHWc),
+                                   wrap_topi_schedule(topi.x86.schedule_conv2d_NCHWc))
+
     elif layout == "NHWC":
         strategy.add_implement(wrap_compute_conv2d(topi.nn.conv2d_nhwc),
                                wrap_topi_schedule(topi.x86.schedule_conv2d_nhwc))
+    else:
+        raise RuntimeError("Unsupported layout for x86 conv2d: %s." % layout)
+
     return strategy
 
 @conv2d_NCHWc_strategy.register("cpu")

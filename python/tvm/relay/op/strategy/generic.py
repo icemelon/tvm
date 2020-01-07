@@ -124,8 +124,69 @@ def wrap_compute_conv2d(topi_compute, has_group=False):
 
 @override_native_generic_func("conv2d_strategy")
 def conv2d_strategy(attrs, inputs, out_type, target):
-    """conv2d generic strategy"""
-    raise NotImplementedError()
+    strategy = _op.OpStrategy()
+
+    padding = get_const_tuple(attrs.padding)
+    strides = get_const_tuple(attrs.strides)
+    dilation = get_const_tuple(attrs.dilation)
+    groups = attrs.groups
+    layout = attrs.data_layout
+    kernel_layout = attrs.kernel_layout
+    out_dtype = attrs.out_dtype
+    out_dtype = (inputs[0].dtype if out_dtype in ("same", "")
+                 else out_dtype)
+
+    assert layout in ["NCHW", "NHWC", "NCHW4c", "HWCN"]
+    (dilation_h, dilation_w) = dilation
+    if dilation_h < 1 or dilation_w < 1:
+        raise ValueError("dilation should be positive value")
+
+    def _get_out_depth():
+        weight_shape = get_const_tuple(inputs[1].shape)
+        # NHWC layout
+        if kernel_layout.startswith("HW"):
+            return weight_shape[2] * weight_shape[3]
+        # NCHW layout.
+        # in ARM CPU contrib_spatial_pack schedule, we will prepack weight layout
+        if len(weight_shape) == 4:
+            return weight_shape[0] * weight_shape[1]
+        else:
+            assert len(weight_shape) == 5
+            C, M, _, _, VC = weight_shape
+            return C * VC * M
+
+    if groups == 1:
+        if layout == "NCHW" or layout == "NCHW4c":
+            strategy.add_implement(
+                wrap_compute_conv2d_NCHWc(topi.nn.conv2d),
+                wrap_topi_schedule(topi.generic.schedule_conv2d_nchw))
+        elif layout == "NHWC":
+            strategy.add_implement(
+                wrap_compute_conv2d_NCHWc(topi.nn.conv2d),
+                wrap_topi_schedule(topi.generic.schedule_conv2d_nhwc))
+        elif layout == "HWCN":
+            strategy.add_implement(
+                wrap_compute_conv2d_NCHWc(topi.nn.conv2d),
+                wrap_topi_schedule(topi.generic.schedule_conv2d_hwcn))
+        else:
+            raise RuntimeError("Unsupported layout for conv2d: %s" % layout)
+    else:
+        if layout == "NCHW" and _get_out_depth() == groups:
+            strategy.add_implement(
+                wrap_compute_conv2d_NCHWc(topi.nn.depthwise_conv2d_nchw),
+                wrap_topi_schedule(topi.generic.schedule_depthwise_conv2d_nchw))
+        elif layout == "NHWC" and kernel_layout == "HWOI" and _get_out_depth() == groups:
+            strategy.add_implement(
+                wrap_compute_conv2d_NCHWc(topi.nn.depthwise_conv2d_nhwc),
+                wrap_topi_schedule(topi.generic.schedule_depthwise_conv2d_nhwc))
+        elif layout in ['NCHW', 'NCHW4c']:
+            strategy.add_implement(
+                wrap_compute_conv2d_NCHWc(topi.nn.group_conv2d_nchw),
+                wrap_topi_schedule(topi.generic.schedule_group_conv2d_nchw))
+        else:
+            raise RuntimeError("Unsupported group number %d" % groups)
+
+    return strategy
 
 # conv2d_NCHWc
 def wrap_compute_conv2d_NCHWc(topi_compute):
