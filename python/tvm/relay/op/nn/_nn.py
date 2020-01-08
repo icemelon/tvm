@@ -645,11 +645,7 @@ def compute_bitpack(attrs, inputs, out_dtype):
                               name)
     return [out]
 
-# @reg.register_schedule("nn.bitpack")
-# def schedule_bitpack(attrs, outs, target):
-#     with target:
-#         return topi.generic.schedule_bitpack(outs)
-
+reg.register_schedule("nn.bitpack", strategy.schedule_bitpack)
 reg.register_pattern("nn.bitpack", OpPattern.INJECTIVE)
 
 

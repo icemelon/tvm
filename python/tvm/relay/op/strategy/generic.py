@@ -94,6 +94,12 @@ def schedule_l2_normalize(attrs, outs, target):
     with target:
         return topi.generic.schedule_l2_normalize(outs)
 
+# bitpack
+@generic_func
+def schedule_bitpack(attrs, outs, target):
+    with target:
+        return topi.generic.schedule_bitpack(outs)
+
 # conv2d
 def wrap_compute_conv2d(topi_compute, has_group=False):
     """Wrap conv2d topi compute"""
