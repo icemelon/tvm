@@ -32,3 +32,11 @@ def schedule_concatenate_arm_cpu(_, outs, target):
     """schedule concatenate for arm cpu"""
     with target:
         return topi.arm_cpu.schedule_concatenate(outs)
+
+@bitserial_dense_strategy.register("arm_cpu")
+def schedule_bitserial_dense_arm_cpu(attrs, inputs, out_type, target):
+    strategy = _op.OpStrategy()
+    strategy.add_implement(
+        wrap_compute_bitserial_dense(topi.arm_cpu.bitserial_dense_default),
+        wrap_topi_schedule(topi.arm_cpu.schedule_bitserial_dense))
+    return strategy

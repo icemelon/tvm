@@ -445,3 +445,28 @@ def schedule_argwhere(attrs, outs, target):
     """schedule argwhere"""
     with target:
         return topi.generic.schedule_argwhere(outs)
+
+# bitserial_dense
+def wrap_compute_bitserial_dense(topi_func):
+    def compute_bitserial_dense(attrs, inputs, out_type):
+        """Compute definition of bitserial dense"""
+        data_bits = attrs.data_bits
+        weight_bits = attrs.weight_bits
+        pack_dtype = attrs.pack_dtype
+        out_dtype = attrs.out_dtype
+        out_dtype = inputs[0].dtype if out_dtype == "" else out_dtype
+        unipolar = attrs.unipolar
+        return [
+            topi_func(inputs[0], inputs[1], data_bits, weight_bits, pack_dtype,
+                      out_dtype, unipolar)
+        ]
+    return compute_bitserial_dense
+
+
+@override_native_generic_func("bitserial_dense_strategy")
+def bitserial_dense_strategy(attrs, inputs, out_type, target):
+    strategy = _op.OpStrategy()
+    strategy.add_implement(
+        wrap_compute_bitserial_dense(topi.nn.bitserial_dense),
+        wrap_topi_schedule(topi.generic.schedule_bitserial_dense))
+    return strategy
