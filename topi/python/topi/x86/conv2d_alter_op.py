@@ -61,7 +61,9 @@ def _alter_conv2d_layout(attrs, inputs, tinfo, F):
 
     # Check if depthwise.
     kshape = get_shape(kernel_tensor.shape, attrs["kernel_layout"], "OIHW")
-    is_depthwise = groups == kshape[0] and kshape[1] == 1
+    is_depthwise = groups == kshape[0] * kshape[1] and groups > 1
+    if is_depthwise:
+        assert kshape[1] == 1, "Currently does not support channel_multiplier != 1 in topi."
 
     # Save the input exprs.
     copy_inputs = [s for s in inputs]
@@ -105,8 +107,9 @@ def _alter_conv2d_layout(attrs, inputs, tinfo, F):
 
     if is_depthwise and data_layout == 'NCHW' and attrs['kernel_layout'] == 'OIHW':
         new_attrs['kernel_layout'] = 'OIHW1i%do' % oc_bn
+        new_attrs['channels'] = groups
         # Store altered operator's config
-        new_kernel = tvm.placeholder((out_channel//oc_bn, 1, kh, kw, 1, oc_bn), dtype=kernel_dtype)
+        new_kernel = tvm.placeholder((groups//oc_bn, 1, kh, kw, 1, oc_bn), dtype=kernel_dtype)
         new_workload = autotvm.task.args_to_workload(
             [new_data, new_kernel, strides, padding, dilation, new_attrs[layout_name],
              new_attrs['out_layout'], out_dtype], depthwise_conv2d_NCHWc)

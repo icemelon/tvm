@@ -18,10 +18,15 @@
 # pylint: disable=invalid-name,unused-argument,wildcard-import,unused-wildcard-import
 from __future__ import absolute_import
 
+import logging
+
 import topi
+from topi.util import get_const_int, get_const_float, get_const_tuple, get_float_tuple
 from .generic import *
 from .. import op as _op
 from ....schedule import SpecializedCondition
+
+logger = logging.getLogger('strategy')
 
 @schedule_injective.register("cpu")
 def schedule_injective_cpu(attrs, outs, target):
@@ -63,21 +68,47 @@ def schedule_softmax_cpu(attrs, outs, target):
 def conv2d_strategy_cpu(attrs, inputs, out_type, target):
     """conv2d x86 strategy"""
     strategy = _op.OpStrategy()
+
+    dilation = get_const_tuple(attrs.dilation)
+    groups = attrs.groups
     layout = attrs.data_layout
-    dtype = out_type.dtype
+    kernel_layout = attrs.kernel_layout
 
-    if layout == "NCHW":
-        if dtype == "int8":
-            pass
-        else:
-            strategy.add_implement(wrap_compute_conv2d(topi.x86.conv2d_NCHWc),
-                                   wrap_topi_schedule(topi.x86.schedule_conv2d_NCHWc))
+    assert layout in ["NCHW", "NHWC"]
+    (dilation_h, dilation_w) = dilation
+    if dilation_h < 1 or dilation_w < 1:
+        raise ValueError("dilation should be positive value")
 
-    elif layout == "NHWC":
-        strategy.add_implement(wrap_compute_conv2d(topi.nn.conv2d_nhwc),
-                               wrap_topi_schedule(topi.x86.schedule_conv2d_nhwc))
+    if groups == 1:
+        if layout == "NCHW":
+            if dtype == "int8":
+                pass
+            else:
+                strategy.add_implement(wrap_compute_conv2d_NCHWc(topi.x86.conv2d_NCHWc),
+                                       wrap_topi_schedule(topi.x86.schedule_conv2d_NCHWc))
+        elif layout == "NHWC":
+            logger.warning("For x86 target, NCHW layout is recommended for conv2d.")
+            strategy.add_implement(
+                wrap_compute_conv2d(topi.x86.conv2d_nhwc),
+                wrap_topi_schedule(topi.x86.schedule_conv2d_nhwc))
     else:
-        raise RuntimeError("Unsupported layout for x86 conv2d: %s." % layout)
+        if layout == "NCHW" and get_conv2d_out_depth(inputs[1], kernel_layout) == groups:
+            strategy.add_implement(
+                wrap_compute_depthwise_conv2d_NCHWc(topi.x86.depthwise_conv2d_NCHWc),
+                wrap_topi_schedule(topi.x86.schedule_depthwise_conv2d_NCHWc))
+        elif layout == "NHWC" and kernel_layout == "HWOI" \
+                and get_conv2d_out_depth(inputs[1], kernel_layout) == groups:
+            logger.warning("For x86 target, NCHW layout is recommended for depthwise conv2d.")
+            strategy.add_implement(
+                wrap_compute_conv2d(topi.nn.depthwise_conv2d_nhwc),
+                wrap_topi_schedule(topi.generic.schedule_depthwise_conv2d_nhwc))
+        elif layout in ['NCHW', 'NCHW4c']:
+            logger.warning("Group conv2d is not optimized for x86 target.")
+            strategy.add_implement(
+                wrap_compute_conv2d(topi.nn.group_conv2d_nchw),
+                wrap_topi_schedule(topi.generic.schedule_group_conv2d_nchw))
+        else:
+            raise RuntimeError("Unsupported group number %d" % groups)
 
     return strategy
 
@@ -87,6 +118,15 @@ def conv2d_NCHWc_strategy_cpu(attrs, inputs, out_type, target):
     strategy = _op.OpStrategy()
     strategy.add_implement(wrap_compute_conv2d_NCHWc(topi.x86.conv2d_NCHWc),
                            wrap_topi_schedule(topi.x86.schedule_conv2d_NCHWc))
+    return strategy
+
+@depthwise_conv2d_NCHWc_strategy.register("cpu")
+def depthwise_conv2d_NCHWc_strategy(attrs, inputs, out_type, target):
+    print('inside x86 depthwise_conv2d_NCHWc_strategy')
+    strategy = _op.OpStrategy()
+    strategy.add_implement(
+        wrap_compute_depthwise_conv2d_NCHWc(topi.x86.depthwise_conv2d.depthwise_conv2d_NCHWc),
+        wrap_topi_schedule(topi.x86.schedule_depthwise_conv2d_NCHWc))
     return strategy
 
 @dense_strategy.register("cpu")

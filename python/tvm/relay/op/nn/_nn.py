@@ -622,6 +622,7 @@ def compute_contrib_depthwise_conv2d_NCHWc(attrs, inputs, out_dtype, target):
 #         return topi.generic.schedule_depthwise_conv2d_NCHWc(outs)
 
 
+reg.register_strategy("nn.contrib_depthwise_conv2d_NCHWc", strategy.depthwise_conv2d_NCHWc_strategy)
 reg.register_pattern("nn.contrib_depthwise_conv2d_NCHWc",
                      OpPattern.OUT_ELEMWISE_FUSABLE)
 

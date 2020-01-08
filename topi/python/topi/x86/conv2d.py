@@ -140,7 +140,7 @@ def schedule_conv2d_nhwc(outs):
     traverse(output_op)
     return s
 
-def _pack_data(cfg, data, kernel):
+def pack_data(cfg, data, kernel):
     n, _, ih, iw = get_const_tuple(data.shape)
     oc, ic, kh, kw = get_const_tuple(kernel.shape)
     ic_bn, oc_bn = cfg["tile_ic"].val, cfg["tile_oc"].val
@@ -203,7 +203,7 @@ def conv2d_NCHWc(cfg, data, kernel, strides, padding, dilation, layout, out_layo
     # Pack data if raw 4-D data is provided.
     # This can only happen when autotuning.
     if len(data.shape) == 4:
-        data, kernel = _pack_data(cfg, data, kernel)
+        data, kernel = pack_data(cfg, data, kernel)
 
     return nn.conv2d_NCHWc_compute(data,
                                    kernel,

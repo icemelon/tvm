@@ -31,7 +31,6 @@ Workload = namedtuple('Workload',
                       ['in_dtype', 'out_dtype', 'height', 'width', 'in_filter', 'groups',
                        'out_filter', 'hkernel', 'wkernel', 'hpad', 'wpad', 'hstride', 'wstride'])
 
-@tvm.target.generic_func
 def conv2d(input, filter, strides, padding, dilation, layout='NCHW', out_dtype=None):
     """Conv2D operator.
 
@@ -368,7 +367,6 @@ def conv2d_nhwc(Input, Filter, stride, padding, dilation, out_dtype='float32'):
     return Output
 
 
-@tvm.target.generic_func
 def conv2d_NCHWc(data, kernel, stride, padding, dilation, layout, out_layout, out_dtype='float32'):
     """Conv2D operator for nChw[x]c layout.
 
@@ -516,7 +514,6 @@ def conv2d_NCHWc_compute(data, kernel, strides, padding, dilation, layout, out_l
                        name='conv2d_NCHWc', tag="conv2d_NCHWc")
 
 
-@tvm.target.generic_func
 def conv2d_NCHWc_int8(data, kernel, strides, padding, dilation, layout, out_layout,
                       out_dtype='int32'):
     """Conv2D operator for nChw[x]c layout.
@@ -724,7 +721,6 @@ def conv2d_winograd_weight_transform(kernel, tile_size):
                                axis=[r_kh, r_kw]), name='transform_weight')
 
 
-@tvm.target.generic_func
 def conv2d_winograd_without_weight_transform(input, filter, strides, padding, dilation,
                                              layout, out_dtype, tile_size):
     """Compute convolution in winograd algorithm. The filter is supposed to be transformed
@@ -768,7 +764,6 @@ def conv2d_winograd_nnpack_weight_transform(kernel, convolution_algorithm, out_d
     return nnpack.convolution_inference_weight_transform(
         kernel, algorithm=convolution_algorithm, dtype=out_dtype)
 
-@tvm.target.generic_func
 def conv2d_winograd_nnpack_without_weight_transform(
         input, filter, bias, strides, padding, dilation, layout, out_dtype):
     """Compute convolution in winograd algorithm. The filter is supposed to be transformed
@@ -793,7 +788,6 @@ def conv2d_winograd_nnpack_without_weight_transform(
     raise ValueError("missing register for topi.nn.conv2d_winograd_without_weight_transform")
 
 
-@tvm.target.generic_func
 def group_conv2d_nchw(Input, Filter, stride, padding, dilation, groups, out_dtype=None):
     """Group convolution operator in NCHW layout.
 
