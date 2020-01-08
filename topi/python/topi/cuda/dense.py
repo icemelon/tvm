@@ -30,47 +30,6 @@ from ..util import traverse_inline, get_const_tuple
 
 logger = logging.getLogger('topi')
 
-
-#@autotvm.register_topi_compute(dense, ["cuda", "gpu"], "direct")
-# def dense_cuda(cfg, data, weight, bias=None, out_dtype=None):
-#     """Dense operator for cuda backend.
-
-#     Parameters
-#     ----------
-#     data : tvm.Tensor
-#         2-D with shape [batch, in_dim]
-
-#     weight : tvm.Tensor
-#         2-D with shape [out_dim, in_dim]
-
-#     bias : tvm.Tensor, optional
-#         1-D with shape [out_dim]
-
-#     Returns
-#     -------
-#     output : tvm.Tensor
-#         2-D with shape [batch, out_dim]
-#     """
-#     # pylint: disable=unused-argument
-#     assert len(data.shape) == 2 and len(weight.shape) == 2, \
-#         "only support 2-dim dense"
-#     if bias is not None:
-#         assert len(bias.shape) == 1
-#     if out_dtype is None:
-#         out_dtype = data.dtype
-#     batch, in_dim = data.shape
-#     out_dim, _ = weight.shape
-#     target = tvm.target.current_target()
-#     if "cublas" in target.libs:
-#         matmul = cublas.matmul(data, weight, False, True, out_dtype)
-#         if bias is not None:
-#             matmul = tvm.compute((batch, out_dim), \
-#                                  lambda i, j: matmul[i, j] + bias[j], \
-#                                  tag=tag.BROADCAST)
-#         return matmul
-#     return dense_default(data, weight, bias, out_dtype)
-
-
 @autotvm.register_topi_compute2("dense_cublas.cuda")
 def dense_cublas(data, weight, bias=None, out_dtype=None):
     """Dense operator on CUDA with CUBLAS"""
@@ -95,61 +54,6 @@ def dense_cublas(data, weight, bias=None, out_dtype=None):
 def schedule_dense_cublas(_, outs):
     """Schedule dense operator using CUBLAS"""
     return generic.schedule_extern(outs)
-
-
-# @autotvm.register_topi_schedule(generic.schedule_dense, ["cuda", "gpu"], "direct")
-# def schedule_dense(cfg, outs):
-#     """Schedule for dense operator.
-
-#     Parameters
-#     ----------
-#     outs: Array of Tensor
-#         The computation graph description of dense
-#         in the format of an array of tensors.
-
-#     Returns
-#     -------
-#     s: Schedule
-#         The computation schedule for dense.
-#     """
-#     # pylint: disable=unused-argument
-#     target = tvm.target.current_target()
-
-#     outs = [outs] if isinstance(outs, tvm.tensor.Tensor) else outs
-#     if target.target_name == "cuda" and "cublas" in target.libs:
-#         return generic.schedule_extern(outs)
-
-#     s = tvm.create_schedule([x.op for x in outs])
-
-#     def _schedule(C):
-#         A, _ = C.op.input_tensors
-#         batch, _ = get_const_tuple(A.shape)
-#         if batch < 32:
-#             return schedule_dense_small_batch(cfg, s, C)
-#         return schedule_dense_large_batch(cfg, s, C)
-
-#     scheduled_ops = []
-
-#     def traverse(OP):
-#         """Internal traverse function"""
-#         # inline all one-to-one-mapping operators except the last stage (output)
-#         if tag.is_broadcast(OP.tag):
-#             if OP not in s.outputs:
-#                 s[OP].compute_inline()
-#             for tensor in OP.input_tensors:
-#                 if isinstance(tensor.op, tvm.tensor.ComputeOp) and tensor.op not in scheduled_ops:
-#                     traverse(tensor.op)
-#         # schedule dense
-#         elif OP.tag == 'dense':
-#             Dense = OP.output(0)
-#             _schedule(Dense)
-#         else:
-#             raise RuntimeError("Unsupported operator: %s" % OP.tag)
-
-#         scheduled_ops.append(OP)
-
-#     traverse(outs[0].op)
-#     return s
 
 
 @autotvm.register_topi_compute2("dense_small_batch.cuda")
