@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 """Definition of CUDA/GPU operator strategy."""
-# pylint: disable=invalid-name,unused-argument
+# pylint: disable=invalid-name,unused-argument,wildcard-import,unused-wildcard-import
 from __future__ import absolute_import
 
 import topi
@@ -24,65 +24,76 @@ from .. import op as _op
 from ....schedule import SpecializedCondition
 
 @schedule_injective.register(["cuda", "gpu"])
-def schedule_injective(attrs, outs, target):
+def schedule_injective_cuda(attrs, outs, target):
+    """schedule injective ops for cuda"""
     with target:
         return topi.cuda.schedule_injective(outs)
 
 @schedule_reduce.register(["cuda", "gpu"])
-def schedule_reduce(attrs, outs, target):
+def schedule_reduce_cuda(attrs, outs, target):
+    """schedule reduction ops for cuda"""
     with target:
         return topi.cuda.schedule_reduce(outs)
 
 @schedule_concatenate.register(["cuda", "gpu"])
-def schedule_concatenate(attrs, outs, target):
+def schedule_concatenate_cuda(attrs, outs, target):
+    """schedule concatenate for cuda"""
     with target:
         return topi.cuda.schedule_injective(outs)
 
 @schedule_pool.register(["cuda", "gpu"])
-def schedule_pool(attrs, outs, target):
+def schedule_pool_cuda(attrs, outs, target):
+    """schedule pooling ops for cuda"""
     with target:
         return topi.cuda.schedule_pool(outs, attrs.layout)
 
 @schedule_pool_grad.register(["cuda", "gpu"])
-def schedule_pool_grad(attrs, outs, target):
+def schedule_pool_grad_cuda(attrs, outs, target):
+    """schedule pooling gradient ops for cuda"""
     with target:
         return topi.cuda.schedule_pool_grad(outs)
 
 @schedule_adaptive_pool.register(["cuda", "gpu"])
-def schedule_adaptive_pool(attrs, outs, target):
+def schedule_adaptive_pool_cuda(attrs, outs, target):
+    """schedule adaptive pooling ops for cuda"""
     with target:
         return topi.cuda.schedule_adaptive_pool(outs)
 
 @schedule_softmax.register(["cuda", "gpu"])
-def schedule_softmax(attrs, outs, target):
+def schedule_softmax_cuda(attrs, outs, target):
+    """schedule softmax for cuda"""
     with target:
         return topi.cuda.schedule_softmax(outs)
 
 @schedule_lrn.register(["cuda", "gpu"])
-def schedule_lrn(attrs, outs, target):
+def schedule_lrn_cuda(attrs, outs, target):
+    """schedule LRN for cuda"""
     with target:
         return topi.cuda.schedule_lrn(outs)
 
 @schedule_l2_normalize.register(["cuda", "gpu"])
-def schedule_l2_normalize(attrs, outs, target):
+def schedule_l2_normalize_cuda(attrs, outs, target):
+    """schedule L2 normalize for cuda"""
     with target:
         return topi.cuda.schedule_l2_normalize(outs)
 
 @deformable_conv2d_strategy.register(["cuda", "gpu"])
-def deformable_conv2d_strategy(attrs, inputs, out_type, target):
+def deformable_conv2d_strategy_cuda(attrs, inputs, out_type, target):
+    """deformable_conv2d cuda strategy"""
     strategy = _op.OpStrategy()
     strategy.add_implement(wrap_compute_deformable_conv2d(topi.cuda.deformable_conv2d_nchw),
                            wrap_topi_schedule(topi.cuda.schedule_deformable_conv2d_nchw))
     return strategy
 
 @conv3d_strategy.register(["cuda", "gpu"])
-def conv3d_strategy(attrs, inputs, out_type, target):
+def conv3d_strategy_cuda(attrs, inputs, out_type, target):
+    """conv3d cuda strategy"""
     strategy = _op.OpStrategy()
     layout = attrs.data_layout
     assert layout in ["NCDHW", "NDHWC"], "Not support this layout {} yet".format(layout)
     if layout == "NCDHW":
         strategy.add_implement(wrap_compute_conv3d(topi.cuda.conv3d_ncdhw),
-                               wrap_topi_schedule(topi.cuda.schedule_conv3d_ncdhw),
+                               _reg._wrap_topi_schedule(topi.cuda.schedule_conv3d_ncdhw),
                                10)
     else: # layout == "NDHWC":
         strategy.add_implement(wrap_compute_conv3d(topi.cuda.conv3d_ndhwc),
@@ -95,7 +106,8 @@ def conv3d_strategy(attrs, inputs, out_type, target):
     return strategy
 
 @conv1d_transpose_strategy.register(["cuda", "gpu"])
-def conv1d_transpose_strategy(attrs, inputs, out_type, target):
+def conv1d_transpose_strategy_cuda(attrs, inputs, out_type, target):
+    """conv1d_transpose cuda strategy"""
     strategy = _op.OpStrategy()
     layout = attrs.data_layout
     dilation = get_const_tuple(attrs.dilation)
@@ -108,7 +120,8 @@ def conv1d_transpose_strategy(attrs, inputs, out_type, target):
     return strategy
 
 @dense_strategy.register(["cuda", "gpu"])
-def dense_strategy(attrs, inputs, out_type, target):
+def dense_strategy_cuda(attrs, inputs, out_type, target):
+    """dense cuda strategy"""
     # Todo(@icemelon9): update dense strategy
     strategy = _op.OpStrategy()
     if out_type.dtype == "int8":
@@ -127,8 +140,9 @@ def dense_strategy(attrs, inputs, out_type, target):
     return strategy
 
 @batch_matmul_strategy.register(["cuda", "gpu"])
-def batch_matmul_strategy(attrs, inputs, out_type, target):
-    strategy =_op.OpStrategy()
+def batch_matmul_strategy_cuda(attrs, inputs, out_type, target):
+    """batch_matmul cuda strategy"""
+    strategy = _op.OpStrategy()
     strategy.add_implement(wrap_compute_batch_matmul(topi.nn.batch_matmul),
                            wrap_topi_schedule(topi.cuda.schedule_batch_matmul),
                            10)
@@ -139,57 +153,66 @@ def batch_matmul_strategy(attrs, inputs, out_type, target):
     return strategy
 
 @argsort_strategy.register(["cuda", "gpu"])
-def argsort_strategy(attrs, inputs, out_type, target):
+def argsort_strategy_cuda(attrs, inputs, out_type, target):
+    """argsort cuda strategy"""
     strategy = _op.OpStrategy()
     strategy.add_implement(wrap_compute_argsort(topi.cuda.argsort_gpu),
                            wrap_topi_schedule(topi.cuda.schedule_argsort))
     return strategy
 
 @topk_strategy.register(["cuda", "gpu"])
-def topk_strategy(attrs, inputs, out_type, target):
+def topk_strategy_cuda(attrs, inputs, out_type, target):
+    """topk cuda strategy"""
     strategy = _op.OpStrategy()
     strategy.add_implement(wrap_compute_topk(topi.cuda.topk_gpu),
                            wrap_topi_schedule(topi.cuda.schedule_topk))
     return strategy
 
 @schedule_multibox_prior.register(["cuda", "gpu"])
-def schedule_multibox_prior(attrs, outs, target):
+def schedule_multibox_prior_cuda(attrs, outs, target):
+    """schedule multibox_prior for cuda"""
     with target:
         return topi.cuda.schedule_multibox_prior(outs)
 
 @schedule_multibox_transform_loc.register(["cuda", "gpu"])
-def schedule_multibox_transform_loc(attrs, outs, target):
+def schedule_multibox_transform_loc_cuda(attrs, outs, target):
+    """schedule multibox_transform_loc for cuda"""
     with target:
         return topi.cuda.schedule_multibox_transform_loc(outs)
 
 @get_valid_counts_strategy.register(["cuda", "gpu"])
-def get_valid_counts_strategy(attrs, inputs, out_type, target):
+def get_valid_counts_strategy_cuda(attrs, inputs, out_type, target):
+    """get_valid_counts cuda strategy"""
     strategy = _op.OpStrategy()
     strategy.add_implement(wrap_compute_get_valid_counts(topi.cuda.get_valid_counts),
                            wrap_topi_schedule(topi.cuda.schedule_get_valid_counts))
     return strategy
 
 @nms_strategy.register(["cuda", "gpu"])
-def nms_strategy(attrs, inputs, out_type, target):
+def nms_strategy_cuda(attrs, inputs, out_type, target):
+    """nms cuda strategy"""
     strategy = _op.OpStrategy()
     strategy.add_implement(wrap_compute_nms(topi.cuda.non_max_suppression),
                            wrap_topi_schedule(topi.cuda.schedule_nms))
     return strategy
 
 @roi_align_strategy.register(["cuda", "gpu"])
-def roi_align_strategy(attrs, inputs, out_type, target):
+def roi_align_strategy_cuda(attrs, inputs, out_type, target):
+    """roi_align cuda strategy"""
     strategy = _op.OpStrategy()
     strategy.add_implement(wrap_compute_roi_align(topi.vision.rcnn.roi_align_nchw),
                            wrap_topi_schedule(topi.cuda.schedule_roi_align))
     return strategy
 
 @schedule_roi_pool.register(["cuda", "gpu"])
-def schedule_roi_pool(attrs, outs, target):
+def schedule_roi_pool_cuda(attrs, outs, target):
+    """schedule roi_pool for cuda"""
     with target:
         return topi.cuda.schedule_roi_pool(outs)
 
 @proposal_strategy.register(["cuda", "gpu"])
-def proposal_strategy(attrs, inputs, out_type, target):
+def proposal_strategy_cuda(attrs, inputs, out_type, target):
+    """proposal cuda strategy"""
     strategy = _op.OpStrategy()
     strategy.add_implement(wrap_compute_proposal(topi.cuda.proposal),
                            wrap_topi_schedule(topi.cuda.schedule_proposal))

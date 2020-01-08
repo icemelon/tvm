@@ -29,7 +29,7 @@ from ...autotvm import task as _task
 from .. import expr as _expr
 from .. import op as _op
 from .. import ty as _ty
-from ..expr_functor import ExprFunctor
+from ..expr_functor import ExprVisitor
 from . import _backend
 
 @register_relay_node
@@ -37,7 +37,11 @@ class CachedFunc(NodeBase):
     """Low-level tensor function to back a relay primitive function.
     """
     def __init__(self, target, func_name, inputs, outputs, schedule=None,
-                 lowered_funcs=[], shape_func_param_states=[]):
+                 lowered_funcs=None, shape_func_param_states=None):
+        if lowered_funcs is None:
+            lowered_funcs = []
+        if shape_func_param_states is None:
+            shape_func_param_states = []
         self.__init_handle_by_constructor__(
             _backend._make_CachedFunc, target, func_name, inputs, outputs,
             schedule, lowered_funcs, shape_func_param_states)
@@ -79,6 +83,7 @@ def _get_cache_key(source_func, target):
 
 
 def get_shape(shape):
+    """Convert the shape to correct dtype and vars."""
     ret = []
     for dim in shape:
         if isinstance(dim, tvm.expr.IntImm):
@@ -92,7 +97,9 @@ def get_shape(shape):
     return ret
 
 
-class ScheduleGetter(ExprFunctor):
+class ScheduleGetter(ExprVisitor):
+    """Get the schedule given a fused Relay function"""
+
     MAX_FUNC_NAME_LENGTH = 80
 
     def __init__(self, target):

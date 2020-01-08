@@ -268,9 +268,9 @@ class OpImplement : public ObjectRef {
    * \param target The build target.
    * \return The computation schedule.
    */
-  Schedule Schedule(const Attrs& attrs,
-                    const Array<Tensor>& outs,
-                    const Target& target);
+  tvm::Schedule Schedule(const Attrs& attrs,
+                         const Array<Tensor>& outs,
+                         const Target& target);
 };
 
 /*!

@@ -14,10 +14,8 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-#pylint: disable=unused-argument
+#pylint: disable=unused-argument,invalid-name
 """The base node types for the Relay language."""
-import topi
-
 from ..._ffi.function import _init_api
 
 from ..base import register_relay_node

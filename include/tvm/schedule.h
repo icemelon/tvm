@@ -744,11 +744,17 @@ class SingletonNode : public IterVarRelationNode {
 
 class SpecializedConditionNode;
 
+/*!
+ * \brief Specialized condition to enable op specialization
+ */
 class SpecializedCondition : public ObjectRef {
  public:
   SpecializedCondition() {}
   explicit SpecializedCondition(ObjectPtr<Object> n) : ObjectRef(n) {}
-
+  /*!
+   * \brief Get the current specialized condition.
+   * \return The current specialized condition.
+   */
   TVM_DLL static tvm::SpecializedCondition Current();
 
   const SpecializedConditionNode* operator->() const;
@@ -759,14 +765,20 @@ class SpecializedCondition : public ObjectRef {
   // enable with syntax.
   friend class Internal;
   friend class With<SpecializedCondition>;
-
+  /*! \brief Push a new specialized condition onto the thread local stack. */
   TVM_DLL void EnterWithScope();
-
+  /*! \brief Pop a specialized condition off the thread local context stack. */
   TVM_DLL void ExitWithScope();
 };
 
+/*! \brief Container for specialization conditions. */
 class SpecializedConditionNode : public Object {
  public:
+  /*!
+   * \brief List of conditions in conjunctive joint form (CNF).
+   *   Each condition should be a simple expression, e.g., n > 16, m % 8 == 0, etc.,
+   *   where n, m are tvm::Var that represents a dimension in the tensor shape.
+   */
   Array<Expr> clauses;
 
   void VisitAttrs(AttrVisitor* v) {

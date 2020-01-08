@@ -335,7 +335,7 @@ class ApplyHistoryBest(DispatchContext):
         if key in self._best_user_defined:
             return self._best_user_defined[key]
         if key in self.best_by_model:
-            inp, res = self.best_by_model[key]
+            inp, _ = self.best_by_model[key]
             return inp.config
 
         # then try matching by target key
@@ -344,7 +344,7 @@ class ApplyHistoryBest(DispatchContext):
             if key in self._best_user_defined:
                 return self._best_user_defined[key]
             if key in self.best_by_targetkey:
-                inp, res = self.best_by_targetkey[key]
+                inp, _ = self.best_by_targetkey[key]
                 return inp.config
 
         return None

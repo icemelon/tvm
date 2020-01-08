@@ -18,7 +18,6 @@
 """Backend compiler related feature registration"""
 from __future__ import absolute_import
 
-import topi
 from .. import op as reg
 from .. import strategy
 from ..op import OpPattern

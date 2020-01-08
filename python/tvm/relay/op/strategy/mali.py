@@ -15,4 +15,4 @@
 # specific language governing permissions and limitations
 # under the License.
 """Definition of mali operator strategy."""
-# pylint: disable=invalid-name,unused-argument
+# pylint: disable=invalid-name,unused-argument,wildcard-import,unused-wildcard-import

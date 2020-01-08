@@ -15,19 +15,20 @@
 # specific language governing permissions and limitations
 # under the License.
 """Definition of ARM CPU operator strategy."""
-# pylint: disable=invalid-name,unused-argument
+# pylint: disable=invalid-name,unused-argument,wildcard-import,unused-wildcard-import
 from __future__ import absolute_import
 
 import topi
 from .generic import *
-from .. import op as _op
 
 @schedule_injective.register("arm_cpu")
-def schedule_injective(_, outs, target):
+def schedule_injective_arm_cpu(_, outs, target):
+    """schedule injective ops for arm cpu"""
     with target:
         return topi.arm_cpu.schedule_injective(outs)
 
 @schedule_concatenate.register("arm_cpu")
-def schedule_concatenate(_, outs, target):
+def schedule_concatenate_arm_cpu(_, outs, target):
+    """schedule concatenate for arm cpu"""
     with target:
         return topi.arm_cpu.schedule_concatenate(outs)

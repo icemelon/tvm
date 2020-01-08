@@ -24,10 +24,9 @@
 #include <tvm/schedule.h>
 #include <tvm/operation.h>
 #include <tvm/runtime/registry.h>
+#include <stack>
 #include <unordered_set>
 #include "graph.h"
-
-#include <stack>
 
 namespace tvm {
 

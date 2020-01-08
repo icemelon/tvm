@@ -15,19 +15,20 @@
 # specific language governing permissions and limitations
 # under the License.
 """Definition of ROCm operator strategy."""
-# pylint: disable=invalid-name,unused-argument
+# pylint: disable=invalid-name,unused-argument,unused-wildcard-import,wildcard-import
 from __future__ import absolute_import
 
 import topi
 from .generic import *
-from .. import op as _op
 
 @schedule_lrn.register("rocm")
-def schedule_lrn(attrs, outs, target):
+def schedule_lrn_rocm(attrs, outs, target):
+    """schedule LRN for rocm"""
     with target:
         return topi.rocm.schedule_lrn(outs)
 
 @schedule_l2_normalize.register("rocm")
-def schedule_l2_normalize(attrs, outs, target):
+def schedule_l2_normalize_rocm(attrs, outs, target):
+    """schedule L2 normalize for rocm"""
     with target:
         return topi.rocm.schedule_l2_normalize(outs)

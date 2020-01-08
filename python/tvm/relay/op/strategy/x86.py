@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 """Definition of x86 operator strategy."""
-# pylint: disable=invalid-name,unused-argument
+# pylint: disable=invalid-name,unused-argument,wildcard-import,unused-wildcard-import
 from __future__ import absolute_import
 
 import topi
@@ -24,37 +24,44 @@ from .. import op as _op
 from ....schedule import SpecializedCondition
 
 @schedule_injective.register("cpu")
-def schedule_injective(attrs, outs, target):
+def schedule_injective_cpu(attrs, outs, target):
+    """schedule injective ops for x86"""
     with target:
         return topi.x86.schedule_injective(outs)
 
 @schedule_reduce.register("cpu")
-def schedule_reduce(attrs, outs, target):
+def schedule_reduce_cpu(attrs, outs, target):
+    """schedule reduction ops for x86"""
     with target:
         return topi.x86.schedule_reduce(outs)
 
 @schedule_concatenate.register("cpu")
-def schedule_concatenate(attrs, outs, target):
+def schedule_concatenate_cpu(attrs, outs, target):
+    """schedule concatenate op for x86"""
     with target:
         return topi.x86.schedule_concatenate(outs)
 
 @schedule_pool.register("cpu")
-def schedule_pool(attrs, outs, target):
+def schedule_pool_cpu(attrs, outs, target):
+    """schedule pooling ops for x86"""
     with target:
         return topi.x86.schedule_pool(outs, attrs.layout)
 
 @schedule_adaptive_pool.register("cpu")
-def schedule_adaptive_pool(attrs, outs, target):
+def schedule_adaptive_pool_cpu(attrs, outs, target):
+    """schedule adaptive pooling ops for x86"""
     with target:
         return topi.x86.schedule_adaptive_pool(outs)
 
 @schedule_softmax.register("cpu")
-def schedule_softmax(attrs, outs, target):
+def schedule_softmax_cpu(attrs, outs, target):
+    """schedule softmax for x86"""
     with target:
         return topi.x86.schedule_softmax(outs)
 
 @conv2d_strategy.register("cpu")
-def conv2d_strategy(attrs, inputs, out_type, target):
+def conv2d_strategy_cpu(attrs, inputs, out_type, target):
+    """conv2d x86 strategy"""
     strategy = _op.OpStrategy()
     layout = attrs.data_layout
     dtype = out_type.dtype
@@ -68,15 +75,16 @@ def conv2d_strategy(attrs, inputs, out_type, target):
     return strategy
 
 @conv2d_NCHWc_strategy.register("cpu")
-def conv2d_NCHWc_strategy(attrs, inputs, out_type, target):
-    print('inside x86 conv2d_NCHWc_strategy')
+def conv2d_NCHWc_strategy_cpu(attrs, inputs, out_type, target):
+    """conv2d_NCHWc x86 strategy"""
     strategy = _op.OpStrategy()
     strategy.add_implement(wrap_compute_conv2d_NCHWc(topi.x86.conv2d_NCHWc),
                            wrap_topi_schedule(topi.x86.schedule_conv2d_NCHWc))
     return strategy
 
 @dense_strategy.register("cpu")
-def dense_strategy(attrs, inputs, out_type, target):
+def dense_strategy_cpu(attrs, inputs, out_type, target):
+    """dense x86 strategy"""
     strategy = _op.OpStrategy()
     m, k = inputs[0].shape
     strategy.add_implement(wrap_compute_dense(topi.x86.dense_nopack),
@@ -92,7 +100,8 @@ def dense_strategy(attrs, inputs, out_type, target):
     return strategy
 
 @batch_matmul_strategy.register("cpu")
-def batch_matmul_strategy(attrs, inputs, out_type, target):
+def batch_matmul_strategy_cpu(attrs, inputs, out_type, target):
+    """batch_matmul x86 strategy"""
     strategy = _op.OpStrategy()
     strategy.add_implement(wrap_compute_batch_matmul(topi.x86.batch_matmul),
                            wrap_topi_schedule(topi.x86.schedule_batch_matmul),
@@ -104,12 +113,14 @@ def batch_matmul_strategy(attrs, inputs, out_type, target):
     return strategy
 
 @schedule_sparse_dense.register("cpu")
-def schedule_sparse_dense(attrs, outs, target):
+def schedule_sparse_dense_cpu(attrs, outs, target):
+    """schedule sparse_dense for x86"""
     with target:
         return topi.x86.schedule_sparse_dense(outs)
 
 @roi_align_strategy.register("cpu")
-def roi_align_strategy(attrs, inputs, out_type, target):
+def roi_align_strategy_cpu(attrs, inputs, out_type, target):
+    """roi_align x86 strategy"""
     strategy = _op.OpStrategy()
     strategy.add_implement(wrap_compute_roi_align(topi.x86.roi_align_nchw),
                            wrap_topi_schedule(topi.generic.schedule_roi_align))

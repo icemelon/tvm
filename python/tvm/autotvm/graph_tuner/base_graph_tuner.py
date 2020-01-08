@@ -25,7 +25,7 @@ import topi
 import tvm
 from tvm import autotvm, relay
 from tvm.autotvm.task import get_config
-from tvm.autotvm.task.topi_integration import deserialize_args, serialize_args
+from tvm.autotvm.task.topi_integration import serialize_args
 from tvm.autotvm.record import encode, load_from_file
 from tvm.autotvm.measure import MeasureResult, MeasureInput
 
@@ -50,11 +50,9 @@ def get_infer_layout(task_name):
     else:
         raise ValueError("Cannot find infer layout for task %s" % task_name)
 
-#@autotvm.template
 @autotvm.register_customized_task("layout_transform")
 def layout_transform(*args):
     """Autotvm layout transform template."""
-    args = deserialize_args(args)
     cfg = get_config()
     cfg.add_flop(-1)
     data = args[0]

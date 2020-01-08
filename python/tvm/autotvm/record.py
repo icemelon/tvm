@@ -26,9 +26,9 @@ import pickle
 import json
 import time
 import os
-import numpy as np
 import itertools
 from collections import OrderedDict
+import numpy as np
 
 from .. import build, lower, target as _target
 
