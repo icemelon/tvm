@@ -31,7 +31,7 @@ from .deformable_conv2d import *
 from .reduction import schedule_reduce
 from .softmax import schedule_softmax
 from .injective import schedule_injective, schedule_elemwise, schedule_broadcast
-from .dense import schedule_dense
+from .dense import *
 from .pooling import *
 from .nn import schedule_lrn, schedule_l2_normalize
 from .batch_matmul import *

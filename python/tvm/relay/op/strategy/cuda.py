@@ -122,21 +122,20 @@ def conv1d_transpose_strategy_cuda(attrs, inputs, out_type, target):
 @dense_strategy.register(["cuda", "gpu"])
 def dense_strategy_cuda(attrs, inputs, out_type, target):
     """dense cuda strategy"""
-    # Todo(@icemelon9): update dense strategy
     strategy = _op.OpStrategy()
     if out_type.dtype == "int8":
         strategy.add_implement(wrap_compute_dense(topi.cuda.dense_int8),
                                wrap_topi_schedule(topi.cuda.schedule_dense_int8))
     else:
-        strategy.add_implement(wrap_compute_dense(topi.nn.dense),
+        strategy.add_implement(wrap_compute_dense(topi.cuda.dense_small_batch),
                                wrap_topi_schedule(topi.cuda.schedule_dense_small_batch))
         b = inputs[0].shape[0]
         with SpecializedCondition(b >= 32):
-            strategy.add_implement(wrap_compute_dense(topi.nn.dense),
+            strategy.add_implement(wrap_compute_dense(topi.cuda.dense_large_batch),
                                    wrap_topi_schedule(topi.cuda.schedule_dense_large_batch))
     if target.target_name == "cuda" and "cublas" in target.libs:
-        strategy.add_implement(wrap_compute_dense(topi.cuda.dense_cblas),
-                               wrap_topi_schedule(topi.generic.schedule_extern), 5)
+        strategy.add_implement(wrap_compute_dense(topi.cuda.dense_cublas),
+                               wrap_topi_schedule(topi.cuda.schedule_dense_cublas), 5)
     return strategy
 
 @batch_matmul_strategy.register(["cuda", "gpu"])

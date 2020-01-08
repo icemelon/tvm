@@ -16,3 +16,17 @@
 # under the License.
 """Definition of mali operator strategy."""
 # pylint: disable=invalid-name,unused-argument,wildcard-import,unused-wildcard-import
+
+from __future__ import absolute_import
+
+import topi
+from .generic import dense_strategy
+from .. import op as _op
+
+@dense_strategy.register(["mali"])
+def dense_strategy_mali(attrs, inputs, out_type, target):
+    """dense mali strategy"""
+    strategy = _op.OpStrategy()
+    strategy.add_implement(wrap_compute_dense(topi.mali.dense_default),
+                           wrap_topi_schedule(topi.mali.schedule_dense))
+    return strategy

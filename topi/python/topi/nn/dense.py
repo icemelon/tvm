@@ -61,7 +61,6 @@ def dense_default(data, weight, bias=None, out_dtype=None):
     return matmul
 
 
-@tvm.target.override_native_generic_func("dense")
 def dense(data, weight, bias=None, out_dtype=None):
     """Applies a linear transformation: :math:`Y = XW^T + b`.
 
