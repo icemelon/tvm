@@ -34,7 +34,6 @@ def _default_schedule(outs, auto_inline):
     return s
 
 
-@tvm.target.generic_func
 def schedule_conv2d_hwcn(outs):
     """Schedule for conv2d_hwcn
 
@@ -52,7 +51,6 @@ def schedule_conv2d_hwcn(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_conv2d_nchw(outs):
     """Schedule for conv2d_nchw
 
@@ -70,7 +68,6 @@ def schedule_conv2d_nchw(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_conv2d_nhwc_pack(outs):
     """Schedule for conv2d_nhwc_pack
 
@@ -88,7 +85,6 @@ def schedule_conv2d_nhwc_pack(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_conv2d_nhwc(outs):
     """Schedule for conv2d_nhwc
 
@@ -106,7 +102,6 @@ def schedule_conv2d_nhwc(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_conv2d_NCHWc(outs):
     """Schedule for conv2d_NCHW[x]c
 
@@ -125,7 +120,6 @@ def schedule_conv2d_NCHWc(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_conv2d_NCHWc_int8(outs):
     """Schedule for conv2d_NCHW[x]c_int8
 
@@ -144,7 +138,6 @@ def schedule_conv2d_NCHWc_int8(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_conv2d_winograd_weight_transform(outs):
     """Schedule for weight transformation of winograd
 
@@ -174,7 +167,6 @@ def schedule_conv2d_winograd_weight_transform(outs):
     return s
 
 
-@tvm.target.generic_func
 def schedule_conv2d_winograd_without_weight_transform(outs):
     """Schedule for winograd without weight transformation
 
@@ -192,7 +184,6 @@ def schedule_conv2d_winograd_without_weight_transform(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_conv2d_winograd_nnpack_weight_transform(outs):
     """Schedule for weight transformation of winograd
      Parameters
@@ -209,7 +200,6 @@ def schedule_conv2d_winograd_nnpack_weight_transform(outs):
     s = tvm.create_schedule([x.op for x in outs])
     return s
 
-@tvm.target.generic_func
 def schedule_conv2d_winograd_nnpack_without_weight_transform(outs):
     """Schedule for winograd without weight transformation
      Parameters
@@ -257,7 +247,6 @@ def schedule_conv3d_ndhwc(outs):
     """
     return _default_schedule(outs, False)
 
-@tvm.target.generic_func
 def schedule_conv2d_transpose_nchw(outs):
     """Schedule for conv2d_transpose_nchw
 
@@ -292,7 +281,6 @@ def schedule_conv1d_transpose_ncw(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_depthwise_conv2d_nchw(outs):
     """Schedule for depthwise_conv2d_nchw
 
@@ -310,7 +298,6 @@ def schedule_depthwise_conv2d_nchw(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_depthwise_conv2d_nhwc(outs):
     """Schedule for depthwise_conv2d_nhwc
     Parameters
@@ -327,7 +314,6 @@ def schedule_depthwise_conv2d_nhwc(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_depthwise_conv2d_NCHWc(outs):
     """Schedule for depthwise_conv2d_NCHWc
     Parameters
@@ -344,7 +330,6 @@ def schedule_depthwise_conv2d_NCHWc(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_group_conv2d_nchw(outs):
     """Schedule for group_conv2d_nchw
 
@@ -379,7 +364,6 @@ def schedule_deformable_conv2d_nchw(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_bitserial_conv2d_nchw(outs):
     """Schedule for bitserial_conv2d_nchw
 
@@ -397,7 +381,6 @@ def schedule_bitserial_conv2d_nchw(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_bitserial_conv2d_nhwc(outs):
     """Schedule for bitserial_conv2d_nhwc
 
@@ -415,7 +398,6 @@ def schedule_bitserial_conv2d_nhwc(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.generic_func
 def schedule_bitserial_dense(outs):
     """Schedule for bitserial_dense
     Parameters
