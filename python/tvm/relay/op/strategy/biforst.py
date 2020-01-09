@@ -27,6 +27,6 @@ from .. import op as _op
 @dense_strategy.register(["biforst"])
 def dense_strategy_biforst(attrs, inputs, out_type, target):
     strategy = _op.OpStrategy()
-    strategy.add_implement(wrap_compute_dense(topi.biforst.dense_default),
+    strategy.add_implement(wrap_compute_dense(topi.biforst.dense),
                            wrap_topi_schedule(topi.biforst.schedule_dense))
     return strategy

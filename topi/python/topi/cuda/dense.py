@@ -23,7 +23,7 @@ import tvm.autotvm as autotvm
 from tvm.autotvm.task.space import SplitEntity
 from tvm.contrib import cublas
 from .tensor_intrin import dp4a
-from ..nn import dense
+from .. import nn
 from .. import tag
 from .. import generic
 from ..util import traverse_inline, get_const_tuple
@@ -59,7 +59,7 @@ def schedule_dense_cublas(_, outs):
 @autotvm.register_topi_compute2("dense_small_batch.cuda")
 def dense_small_batch(_, data, weight, bias=None, out_dtype=None):
     """Dense operator on CUDA"""
-    return dense(data, weight, bias, out_dtype)
+    return nn.dense(data, weight, bias, out_dtype)
 
 
 @autotvm.register_topi_schedule2("dense_small_batch.cuda")
@@ -195,7 +195,6 @@ def schedule_dense_large_batch(cfg, s, C):
     s[BB].bind(tx, tvm.thread_axis("threadIdx.x"))
     s[BB].double_buffer()
 
-#@autotvm.register_topi_compute(dense, ['cuda'], ['int8'])
 @autotvm.register_topi_compute2("dense_int8.cuda")
 def dense_int8(cfg, data, weight, bias=None, out_dtype=None):
     """Dense operator for int8 on CUDA"""
@@ -232,7 +231,6 @@ def dense_int8(cfg, data, weight, bias=None, out_dtype=None):
     return matmul
 
 
-#@autotvm.register_topi_schedule(generic.schedule_dense, ['cuda', 'gpu'], ['int8'])
 @autotvm.register_topi_schedule2("dense_int8.cuda")
 def schedule_dense_int8(cfg, outs):
     """Dense schedule for int8 on CUDA"""

@@ -27,6 +27,6 @@ from .. import op as _op
 def dense_strategy_mali(attrs, inputs, out_type, target):
     """dense mali strategy"""
     strategy = _op.OpStrategy()
-    strategy.add_implement(wrap_compute_dense(topi.mali.dense_default),
+    strategy.add_implement(wrap_compute_dense(topi.mali.dense),
                            wrap_topi_schedule(topi.mali.schedule_dense))
     return strategy

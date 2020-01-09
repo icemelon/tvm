@@ -22,19 +22,17 @@ from __future__ import absolute_import as _abs
 import tvm
 from tvm import autotvm
 
-from ..nn import dense
+from .. import nn
 from ..util import traverse_inline
 
-#autotvm.register_topi_compute(nn.dense, 'mali', 'direct', nn.dense.fdefault)
 
 
 @autotvm.register_topi_compute2('dense.mali')
-def dense_default(_, data, weight, bias=None, out_dtype=None):
+def dense(_, data, weight, bias=None, out_dtype=None):
     """Dense operator on Mali"""
-    return dense(data, weight, bias, out_dtype)
+    return nn.dense(data, weight, bias, out_dtype)
 
 
-#@autotvm.register_topi_schedule(generic.schedule_dense, 'mali', 'direct')
 @autotvm.register_topi_schedule2('dense.mali')
 def schedule_dense(cfg, outs):
     """Schedule for dense operator.

@@ -39,7 +39,7 @@ def dense_strategy_rocm(attrs, inputs, out_type, target):
     strategy = _op.OpStrategy()
     assert len(inputs[0].shape) == 2 and len(inputs[1].shape) == 2, "Only support 2-dim dense"
 
-    strategy.add_implement(wrap_compute_dense(topi.rocm.dense_default),
+    strategy.add_implement(wrap_compute_dense(topi.rocm.dense),
                            wrap_topi_schedule(topi.rocm.schedule_dense))
     if target.target_name == "rocm" and "rocblas" in target.libs:
         assert out_dtype == inputs[0].dtype, "Mixed precision not supported."

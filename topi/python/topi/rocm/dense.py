@@ -20,12 +20,10 @@ from __future__ import absolute_import as _abs
 from tvm import autotvm
 from tvm.contrib import rocblas
 import topi
-from ..nn.dense import dense
-from .. import generic
+from .. import generic, nn
 
-#@autotvm.register_topi_compute(dense, "rocm", "direct")
 @autotvm.register_topi_compute2('dense.rocm')
-def dense_default(cfg, data, weight, bias=None, out_dtype=None):
+def dense(cfg, data, weight, bias=None, out_dtype=None):
     """Dense operator for rocm backend.
 
     Parameters
@@ -48,10 +46,9 @@ def dense_default(cfg, data, weight, bias=None, out_dtype=None):
         2-D with shape [batch, out_dim]
     """
     assert bias is None, "bias is not supported"
-    return dense(data, weight, bias, out_dtype)
+    return nn.dense(data, weight, bias, out_dtype)
 
 
-#@autotvm.register_topi_schedule(generic.schedule_dense, "rocm", "direct")
 @autotvm.register_topi_schedule2('dense.rocm')
 def schedule_dense(cfg, outs):
     """Schedule for dense operator.
