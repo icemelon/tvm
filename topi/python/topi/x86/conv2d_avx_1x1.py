@@ -73,10 +73,26 @@ def _schedule_conv_NCHWc(s, cfg, data_vec, kernel_vec, conv_out, last):
 
     if autotvm.GLOBAL_SCOPE.in_tuning:
         # only in autotuning, input data of conv2d_NCHWc will be 4-D.
-        # skip this part during tuning to make recrods accurate.
+        # skip this part during tuning to make records accurate.
         # this part will be folded during Relay fold_constant pass.
         s[data_vec].pragma(s[data_vec].op.axis[0], "debug_skip_region")
         s[kernel_vec].pragma(s[kernel_vec].op.axis[0], "debug_skip_region")
+    elif isinstance(kernel_vec.op, tvm.tensor.ComputeOp) and \
+            kernel_vec.name == 'kernel_vec':
+        # data and kernel are not pre-computed, schedule layout transform here.
+        # this should only be used by x86 conv2d_nchw, which is for
+        # testing purpose.
+        batch, ic_chunk, ih, ic_block, iw = s[data_vec].op.axis
+        parallel_axis = s[data_vec].fuse(batch, ic_chunk, ih)
+        s[data_vec].parallel(parallel_axis)
+
+        oc_chunk, ic_chunk, oh, ow, ic_block, oc_block = s[kernel_vec].op.axis
+        s[kernel_vec].reorder(oc_chunk, oh, ic_chunk, ow, ic_block, oc_block)
+        oc_bn = cfg["tile_oc"].size[-1]
+        if oc_bn > 1:
+            s[kernel_vec].vectorize(oc_block)
+        parallel_axis = s[kernel_vec].fuse(oc_chunk, oh)
+        s[kernel_vec].parallel(parallel_axis)
 
     C, O = conv_out, last
     CC = s.cache_write(C, 'global')

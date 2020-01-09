@@ -73,15 +73,31 @@ def _conv2d_infer_layout(workload, cfg):
     out_layout = "NCHW%dc" % tile_oc
     return ((in_shape, in_layout),), ((out_shape, out_layout),)
 
-def conv2d_nchw(_, data, kernel, strides, padding, dilation, layout, out_dtype):
-    out_dtype = data.dtype if out_dtype is None else out_dtype
-    strides = strides if isinstance(strides, (tuple, list)) else (strides, strides)
-    dilation = dilation if isinstance(dilation, (tuple, list)) else (dilation, dilation)
+# conv2d_nchw compute and schedule is for testing purpose only.
+# It is not used as x86 conv2d NCHW strategy, since
+# alter_op_layout pass and conv2d_NCHWc strategy can
+# eliminate input and output data layout transformations.
+def conv2d_nchw(cfg, data, kernel, strides, padding, dilation, layout, out_dtype):
+    packed_out = conv2d_NCHWc(cfg, data, kernel, strides, padding,
+                              dilation, layout, layout, out_dtype)
+    n, oc_chunk, oh, ow, oc_bn = get_const_tuple(packed_out.shape)
 
-    return nn.conv2d_nchw(data, kernel, strides, padding, dilation, out_dtype)
+    idxmod = tvm.indexmod
+    idxdiv = tvm.indexdiv
 
-def schedule_conv2d_nchw(outs):
-    return generic.schedule_conv2d_nchw(outs)
+    oshape = (n, oc_chunk * oc_bn, oh, ow)
+    unpacked_out = \
+        tvm.compute(oshape,
+                    lambda n, c, h, w:
+                    packed_out[n, idxdiv(c, oc_bn), h, w, idxmod(c, oc_bn)]
+                    .astype(out_dtype),
+                    name='output_unpack',
+                    tag='conv2d_nchw')
+
+    return unpacked_out
+
+def schedule_conv2d_nchw(cfg, outs):
+    return schedule_conv2d_NCHWc(cfg, outs)
 
 @autotvm.register_topi_compute2("conv2d_nhwc.x86")
 def conv2d_nhwc(_, data, kernel, strides, padding, dilation, layout, out_dtype):
@@ -148,7 +164,7 @@ def schedule_conv2d_nhwc(outs):
 def pack_data(cfg, data, kernel):
     n, _, ih, iw = get_const_tuple(data.shape)
     oc, ic, kh, kw = get_const_tuple(kernel.shape)
-    ic_bn, oc_bn = cfg["tile_ic"].val, cfg["tile_oc"].val
+    ic_bn, oc_bn = cfg["tile_ic"].size[-1], cfg["tile_oc"].size[-1]
 
     ic_chunk = ic // ic_bn
     oc_chunk = oc // oc_bn
