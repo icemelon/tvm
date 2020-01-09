@@ -136,6 +136,7 @@ def wrap_compute_conv2d(topi_compute, has_group=False):
 
 @override_native_generic_func("conv2d_strategy")
 def conv2d_strategy(attrs, inputs, out_type, target):
+    """conv2d generic strategy"""
     strategy = _op.OpStrategy()
 
     dilation = get_const_tuple(attrs.dilation)
@@ -211,6 +212,7 @@ def conv2d_NCHWc_strategy(attrs, inputs, out_type, target):
 
 # depthwise_conv2d_NCHWc
 def wrap_compute_depthwise_conv2d_NCHWc(topi_func):
+    """wrap depthwise_conv2d_NCHWc topi compute"""
     def compute(attrs, inputs, out_type):
         padding = attrs.get_int_tuple("padding")
         strides = attrs.get_int_tuple("strides")
@@ -225,7 +227,7 @@ def wrap_compute_depthwise_conv2d_NCHWc(topi_func):
 
 @override_native_generic_func("depthwise_conv2d_NCHWc_strategy")
 def depthwise_conv2d_NCHWc_strategy(attrs, inputs, out_type, target):
-    print('inside generic depthwise_conv2d_NCHWc_strategy')
+    """depthwise_conv2d generic strategy"""
     strategy = _op.OpStrategy()
     if out_type == "int8":
         pass

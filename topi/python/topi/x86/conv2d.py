@@ -18,18 +18,13 @@
 """Conv2D schedule on x86"""
 
 import logging
-import re
 
 import tvm
 from tvm import autotvm
-from tvm.autotvm.task.topi_integration import deserialize_args
-from tvm.autotvm.task import get_config
 from .. import generic, tag
 from .. import nn
-from ..nn.conv2d import conv2d, conv2d_NCHWc, \
-    conv2d_infer_layout, _get_workload as _get_conv2d_workload
+from ..nn.conv2d import conv2d_infer_layout, _get_workload as _get_conv2d_workload
 from ..nn.depthwise_conv2d import _get_workload as _get_depthwise_conv2d_workload
-from ..nn.pad import pad
 from ..nn.util import get_pad_tuple
 from ..util import get_const_tuple
 
@@ -77,6 +72,16 @@ def _conv2d_infer_layout(workload, cfg):
     out_shape = (batch_size, idxdiv(out_channel, tile_oc), out_height, out_width, tile_oc)
     out_layout = "NCHW%dc" % tile_oc
     return ((in_shape, in_layout),), ((out_shape, out_layout),)
+
+def conv2d_nchw(_, data, kernel, strides, padding, dilation, layout, out_dtype):
+    out_dtype = data.dtype if out_dtype is None else out_dtype
+    strides = strides if isinstance(strides, (tuple, list)) else (strides, strides)
+    dilation = dilation if isinstance(dilation, (tuple, list)) else (dilation, dilation)
+
+    return nn.conv2d_nchw(data, kernel, strides, padding, dilation, out_dtype)
+
+def schedule_conv2d_nchw(outs):
+    return generic.schedule_conv2d_nchw(outs)
 
 @autotvm.register_topi_compute2("conv2d_nhwc.x86")
 def conv2d_nhwc(_, data, kernel, strides, padding, dilation, layout, out_dtype):
@@ -163,8 +168,6 @@ def pack_data(cfg, data, kernel):
 
 @autotvm.register_topi_compute2("conv2d_NCHWc.x86")
 def conv2d_NCHWc(cfg, data, kernel, strides, padding, dilation, layout, out_layout, out_dtype):
-    print('inside x86.conv2d_NCHWC')
-    print(cfg)
     # layout and out_layout are not used here,
     # we keep them for debug convenience when dumping autotvm workload
     if len(data.shape) == 5:

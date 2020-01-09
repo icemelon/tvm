@@ -82,7 +82,7 @@ def conv2d_strategy_cpu(attrs, inputs, out_type, target):
     if groups == 1:
         if layout == "NCHW":
             if dtype == "int8":
-                pass
+                raise RuntimeError("Yet to be added")
             else:
                 strategy.add_implement(wrap_compute_conv2d_NCHWc(topi.x86.conv2d_NCHWc),
                                        wrap_topi_schedule(topi.x86.schedule_conv2d_NCHWc))
@@ -122,7 +122,7 @@ def conv2d_NCHWc_strategy_cpu(attrs, inputs, out_type, target):
 
 @depthwise_conv2d_NCHWc_strategy.register("cpu")
 def depthwise_conv2d_NCHWc_strategy(attrs, inputs, out_type, target):
-    print('inside x86 depthwise_conv2d_NCHWc_strategy')
+    """depthwise_conv2d x86 strategy"""
     strategy = _op.OpStrategy()
     strategy.add_implement(
         wrap_compute_depthwise_conv2d_NCHWc(topi.x86.depthwise_conv2d.depthwise_conv2d_NCHWc),
