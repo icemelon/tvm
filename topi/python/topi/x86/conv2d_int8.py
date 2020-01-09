@@ -112,7 +112,7 @@ def _create_tuning_space_int8(cfg, data, kernel, strides, padding, dilation, lay
 # We define schedule template in this function instead of
 # declaration function since actual input arguments need
 # to be altered by the schedule selected.
-@autotvm.task.register("topi_x86_conv2d_NCHWc_int8")
+#@autotvm.task.register("topi_x86_conv2d_NCHWc_int8")
 def _topi_nn_conv2d_NCHWc_int8(*args, **kwargs):
     assert not kwargs, "Do not support kwargs in template function call"
     args = deserialize_args(args)
@@ -158,7 +158,7 @@ def _topi_nn_conv2d_NCHWc_int8(*args, **kwargs):
     return s, [new_data, new_kernel, C]
 
 
-@autotvm.register_topi_compute(conv2d_NCHWc_int8, 'cpu', 'direct')
+#@autotvm.register_topi_compute(conv2d_NCHWc_int8, 'cpu', 'direct')
 def _declaration_conv_NCHWc_int8(cfg, data, kernel, strides,
                                  padding, dilation, layout, out_layout, out_dtype):
     return nn.conv2d_NCHWc_int8_compute(data,
@@ -171,7 +171,7 @@ def _declaration_conv_NCHWc_int8(cfg, data, kernel, strides,
                                         out_dtype)
 
 
-@autotvm.register_topi_schedule(generic.schedule_conv2d_NCHWc_int8, 'cpu', ['direct'])
+#@autotvm.register_topi_schedule(generic.schedule_conv2d_NCHWc_int8, 'cpu', ['direct'])
 def _schedule_conv2d_NCHWc_int8(cfg, outs):
     """Create schedule for tensors"""
     s = tvm.create_schedule([x.op for x in outs])
@@ -212,7 +212,7 @@ def _schedule_conv2d_NCHWc_int8(cfg, outs):
     traverse(outs[0].op)
     return s
 
-@autotvm.register_topi_schedule(generic.schedule_conv2d_nhwc_pack, 'cpu', ['direct'])
+#@autotvm.register_topi_schedule(generic.schedule_conv2d_nhwc_pack, 'cpu', ['direct'])
 def schedule_conv2d_nhwc_pack(cfg, outs):
     """Create schedule for tensors"""
     s = tvm.create_schedule([x.op for x in outs])

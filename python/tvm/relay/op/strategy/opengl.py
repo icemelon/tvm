@@ -20,6 +20,7 @@ from __future__ import absolute_import
 
 import topi
 from .generic import *
+from .. import op as _op
 
 @schedule_injective.register("opengl")
 def schedule_injective_opengl(attrs, outs, target):
@@ -50,3 +51,11 @@ def schedule_softmax_opengl(attrs, outs, target):
     """schedule softmax for opengl"""
     with target:
         return topi.opengl.schedule_softmax(outs)
+
+@dense_strategy.register("opengl")
+def schedule_dense_opengl(attrs, inputs, out_type, target):
+    """dense hls strategy"""
+    strategy = _op.OpStrategy()
+    strategy.add_implement(wrap_compute_dense(topi.nn.dense),
+                           wrap_topi_schedule(topi.opengl.schedule_dense))
+    return strategy

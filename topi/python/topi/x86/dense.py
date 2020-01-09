@@ -134,12 +134,6 @@ def _default_dense_nopack_config(cfg, M, N, K):
     cfg["tile_x"] = SplitEntity([N, 1])
     cfg["tile_y"] = SplitEntity([1, M])
 
-
-##########################################################################
-# new template
-##########################################################################
-
-
 @autotvm.register_topi_compute2("dense_nopack.x86")
 def dense_nopack(cfg, data, weight, bias=None, out_dtype=None):
     if out_dtype is None:

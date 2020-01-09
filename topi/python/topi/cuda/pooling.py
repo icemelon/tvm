@@ -18,7 +18,6 @@
 """Schedule for pooling operators"""
 import tvm
 from .. import tag
-from .. import generic
 from ..util import traverse_inline
 
 

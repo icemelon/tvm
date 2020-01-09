@@ -18,32 +18,23 @@
 """Conv2D Transpose schedule on x86"""
 import tvm
 from tvm import autotvm
-from .. import generic
 from ..util import get_const_tuple, traverse_inline
-from ..nn import conv2d_transpose_nchw_preprocess, conv2d_transpose_nchw
+from .. import nn
 from . import conv2d_avx_1x1, conv2d_avx_common
-from .conv2d import _declaration_conv_impl, \
-    _create_tuning_space as _create_tuning_space_conv2d, \
-    _get_default_config as _get_default_config_conv2d
+from .conv2d import _decl_conv2d_nchw
 
-
-@autotvm.register_topi_compute(conv2d_transpose_nchw, 'cpu', ['direct'])
-def _conv2d_transpose_nchw(cfg, data, kernel, strides, padding, out_dtype):
+@autotvm.register_topi_compute2("conv2d_transpose_nchw.x86")
+def conv2d_transpose_nchw(cfg, data, kernel, strides, padding, out_dtype):
     data_pad, kernel_transform = \
-        conv2d_transpose_nchw_preprocess(data, kernel, strides, padding, out_dtype)
-    # reuse conv2d implementation
-    _create_tuning_space_conv2d(cfg, data_pad, kernel_transform, strides=(1, 1), \
-                                padding=(0, 0), dilation=(1, 1), layout="NCHW")
-    if cfg.is_fallback:
-        _get_default_config_conv2d(cfg, data_pad, kernel_transform, strides=(1, 1), \
-                                   padding=(0, 0), out_dtype=out_dtype, layout='NCHW')
-    return _declaration_conv_impl(cfg, data_pad, kernel_transform, strides=(1, 1), \
-                                  padding=(0, 0), dilation=(1, 1), layout="NCHW", \
-                                  out_dtype=out_dtype)
+        nn.conv2d_transpose_nchw_preprocess(data, kernel, strides, padding, out_dtype)
+    # reuse conv2d_nchw implementation
+    return _decl_conv2d_nchw(cfg, data_pad, kernel_transform, strides=(1, 1),
+                             padding=(0, 0), dilation=(1, 1), layout="NCHW",
+                             out_dtype=out_dtype)
 
 
-@autotvm.register_topi_schedule(generic.schedule_conv2d_transpose_nchw, 'cpu', ['direct'])
-def _schedule_conv2d_transpose_nchw(cfg, outs):
+@autotvm.register_topi_schedule2("conv2d_transpose_nchw.x86")
+def schedule_conv2d_transpose_nchw(cfg, outs):
     """Create schedule for tensors"""
     outs = [outs] if isinstance(outs, tvm.tensor.Tensor) else outs
     s = tvm.create_schedule([x.op for x in outs])
@@ -67,9 +58,9 @@ def _schedule_conv2d_transpose_nchw(cfg, outs):
             is_kernel_1x1 = kh == 1 and kw == 1
             args = [s, cfg, data_dilate, data_pad, data_vec, kernel_vec, conv_out, output, outs[0]]
             if is_kernel_1x1:
-                conv2d_avx_1x1._schedule_conv(*args)
+                conv2d_avx_1x1._schedule_conv_nchw(*args)
             else:
-                conv2d_avx_common._schedule_conv(*args)
+                conv2d_avx_common._schedule_conv_nchw(*args)
 
     traverse_inline(s, outs[0].op, _callback)
     return s

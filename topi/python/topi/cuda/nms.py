@@ -22,7 +22,6 @@ import tvm
 from tvm import api
 from tvm.generic import cast
 from tvm.intrin import if_then_else, log, power
-from topi.vision import non_max_suppression, get_valid_counts
 from .sort import argsort
 from .. import tag
 

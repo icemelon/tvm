@@ -20,6 +20,7 @@ from __future__ import absolute_import
 
 import topi
 from .generic import *
+from .. import op as _op
 
 @schedule_injective.register("hls")
 def schedule_injective_hls(attrs, outs, target):
@@ -56,3 +57,43 @@ def schedule_softmax_hls(attrs, outs, target):
     """schedule softmax for hls"""
     with target:
         return topi.hls.schedule_softmax(outs)
+
+@conv2d_transpose_strategy.register("hls")
+def conv2d_transpose_strategy_hls(attrs, inputs, out_type, target):
+    """conv2d_transpose hls strategy"""
+    layout = attrs.data_layout
+    dilation = get_const_tuple(attrs.dilation)
+    groups = attrs.groups
+    assert layout == "NCHW", "only support nchw for now"
+    assert dilation == (1, 1), "not support dilate now"
+    assert groups == 1, "only support groups == 1 for now"
+    strategy = _op.OpStrategy()
+    strategy.add_implement(
+        wrap_comptue_conv2d_transpose(topi.nn.conv2d_transpose_nchw),
+        wrap_topi_schedule(topi.hls.schedule_conv2d_transpose_nchw))
+    return strategy
+
+@dense_strategy.register("hls")
+def dense_strategy_hls(attrs, inputs, out_type, target):
+    """dense hls strategy"""
+    strategy = _op.OpStrategy()
+    strategy.add_implement(wrap_compute_dense(topi.nn.dense),
+                           wrap_topi_schedule(topi.hls.schedule_dense))
+    return strategy
+
+@bitserial_conv2d_strategy.register("hls")
+def bitserial_conv2d_strategy_hls(attrs, inputs, out_type, target):
+    """bitserial_conv2d hls strategy"""
+    strategy = _op.OpStrategy()
+    layout = attrs.data_layout
+    if layout == "NCHW":
+        strategy.add_implement(
+            wrap_compute_bitserial_conv2d(topi.nn.bitserial_conv2d_nchw),
+            wrap_topi_schedule(topi.hls.schedule_bitserial_conv2d_nchw))
+    elif layout == "NHWC":
+        strategy.add_implement(
+            wrap_compute_bitserial_conv2d(topi.nn.bitserial_conv2d_nhwc),
+            wrap_topi_schedule(topi.hls.schedule_bitserial_conv2d_nhwc))
+    else:
+        raise ValueError("Data layout {} not supported.".format(layout))
+    return strategy

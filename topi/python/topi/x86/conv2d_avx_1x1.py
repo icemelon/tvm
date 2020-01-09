@@ -22,7 +22,7 @@ from tvm import autotvm
 from tvm.autotvm.task.space import SplitEntity, OtherOptionEntity
 
 from ..nn.pad import pad
-from ..nn.util import get_pad_tuple
+from ..nn.util import get_pad_tuple, infer_pad
 from ..generic import conv2d as conv2d_generic
 from ..util import get_const_tuple, simplify
 from .tensor_intrin import dot_16x1x16_uint8_int8_int32
@@ -57,6 +57,74 @@ def _fallback_schedule(cfg, wkl):
                     cfg["tile_ow"] = SplitEntity([out_width // ow_factor, ow_factor])
                     return
     raise ValueError("cannot decide default schedule for workload: {}".format(wkl))
+
+
+def _schedule_conv_nchw(s, cfg, data, data_pad, data_vec, kernel_vec, conv_out, output, last):
+    # fetch schedule
+    ic_bn, oc_bn, oh_factor, ow_factor = (cfg["tile_ic"].size[-1], cfg["tile_oc"].size[-1],
+                                          cfg["tile_oh"].val, cfg["tile_ow"].size[-1])
+
+    # no stride and padding info here
+    padding = infer_pad(data, data_pad)
+    HPAD, WPAD = padding
+    DOPAD = (HPAD != 0 or WPAD != 0)
+
+    A, W = data, kernel_vec
+    A0, A1 = data_pad, data_vec
+    # schedule data
+    if DOPAD:
+        s[A0].compute_inline()
+    batch, ic_chunk, ih, ic_block, iw = s[A1].op.axis
+    parallel_axis = s[A1].fuse(batch, ic_chunk, ih)
+    s[A1].parallel(parallel_axis)
+
+    # schedule kernel pack
+    oc_chunk, ic_chunk, oh, ow, ic_block, oc_block = s[W].op.axis
+    s[W].reorder(oc_chunk, oh, ic_chunk, ow, ic_block, oc_block)
+    if oc_bn > 1:
+        s[W].vectorize(oc_block)
+    parallel_axis = s[W].fuse(oc_chunk, oh)
+    s[W].parallel(parallel_axis)
+
+    C, O0, O = conv_out, output, last
+    CC = s.cache_write(C, 'global')
+
+    batch, oc_chunk, oh, ow, oc_block = s[C].op.axis
+    oh_outer, oh_inner = s[C].split(oh, factor=oh_factor)
+    s[C].vectorize(oc_block)
+
+    s[CC].compute_at(s[C], oh_outer)
+    _, oc_chunk, oh, ow, oc_block = s[CC].op.axis
+    ic, _, _ = s[CC].op.reduce_axis
+
+    ic_chunk, ic_block = s[CC].split(ic, factor=ic_bn)
+
+    oh_outer, oh_inner = s[CC].split(oh, factor=oh_factor)
+    ow_outer, ow_inner = s[CC].split(ow, factor=ow_factor)
+
+    s[CC].reorder(oc_chunk, oh_outer, ow_outer, ic_chunk, ic_block, oh_inner, ow_inner, oc_block)
+    s[CC].vectorize(oc_block)
+
+    s[CC].unroll(ow_inner)
+    s[CC].unroll(oh_inner)
+
+    if O0 != O:
+        s[O0].compute_inline()
+    batch, oc, oh, ow = s[O].op.axis
+
+    oc_chunk, oc_block = s[O].split(oc, factor=oc_bn)
+    oh_outer, oh_inner = s[O].split(oh, factor=oh_factor)
+    ow_outer, ow_inner = s[O].split(ow, factor=ow_factor)
+    s[O].reorder(oc_chunk, oh_outer, ow_outer, oh_inner, ow_inner, oc_block)
+
+    parallel_axis = s[O].fuse(batch, oc_chunk, oh_outer)
+    s[C].compute_at(s[O], parallel_axis)
+    s[O].vectorize(oc_block)
+
+    s[O].parallel(parallel_axis)
+
+    return s
+
 
 def _schedule_conv_NCHWc(s, cfg, data_vec, kernel_vec, conv_out, last):
     # fetch schedule

@@ -19,9 +19,9 @@
 from __future__ import absolute_import as _abs
 import tvm
 from tvm import autotvm
-from topi.util import get_const_int
-from .bitserial_util import bitpack, binary_op_multiplier
+from topi.util import get_const_int, get_const_tuple
 from .. import tag
+from ..nn.bitserial_util import bitpack, binary_op_multiplier
 
 @autotvm.register_topi_compute2('bitserial_dense.x86')
 def bitserial_dense(cfg, data, weight, data_bits, weight_bits, pack_dtype='uint32',

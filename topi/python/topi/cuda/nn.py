@@ -19,7 +19,6 @@
 from __future__ import absolute_import as _abs
 
 import tvm
-from .. import generic
 from .. import cpp
 
 def schedule_lrn(outs):

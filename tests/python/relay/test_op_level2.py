@@ -1066,7 +1066,7 @@ def test_bitserial_conv2d_infer_type():
     y = relay.nn.bitserial_conv2d(
         x, w, kernel_size=(3, 3), padding=(0, 0), channels=32)
     yy = run_infer_type(y)
-    assert yy.checked_type ==  relay.TensorType(
+    assert yy.checked_type == relay.TensorType(
         (n, 32, 222, 222), "int16")
 
 
@@ -1076,8 +1076,10 @@ def test_bitpack_infer_type():
     x = relay.var("x", relay.ty.TensorType((o, i, h, w), "int16"))
     y = relay.nn.bitpack(x, bit_axis=4, pack_axis=1, pack_type='uint16', bits=1)
     yy = run_infer_type(y)
-    assert yy.checked_type ==  relay.TensorType(
+    assert yy.checked_type == relay.TensorType(
         (32, 2, 128, 128, 1), "uint16")
+
+# @TODO(@jwfromm): Need to add bitserial_conv2d & bitpack run test cases
 
 
 if __name__ == "__main__":

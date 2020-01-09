@@ -85,6 +85,21 @@ def deformable_conv2d_strategy_cuda(attrs, inputs, out_type, target):
                            wrap_topi_schedule(topi.cuda.schedule_deformable_conv2d_nchw))
     return strategy
 
+@conv2d_transpose_strategy.register(["cuda", "gpu"])
+def conv2d_transpose_strategy_cuda(attrs, inputs, out_type, target):
+    """conv2d_transpose cuda strategy"""
+    layout = attrs.data_layout
+    dilation = get_const_tuple(attrs.dilation)
+    groups = attrs.groups
+    assert layout == "NCHW", "only support nchw for now"
+    assert dilation == (1, 1), "not support dilate now"
+    assert groups == 1, "only support groups == 1 for now"
+    strategy = _op.OpStrategy()
+    strategy.add_implement(
+        wrap_comptue_conv2d_transpose(topi.cuda.conv2d_transpose_nchw),
+        wrap_topi_schedule(topi.cuda.schedule_conv2d_transpose_nchw))
+    return strategy
+
 @conv3d_strategy.register(["cuda", "gpu"])
 def conv3d_strategy_cuda(attrs, inputs, out_type, target):
     """conv3d cuda strategy"""

@@ -248,32 +248,8 @@ reg.register_pattern("nn.conv2d", OpPattern.OUT_ELEMWISE_FUSABLE)
 
 
 # conv2d_transpose
-@reg.register_compute("nn.conv2d_transpose")
-def compute_conv2d_transpose(attrs, inputs, out_dtype):
-    """Compute definition of conv2d_transpose"""
-    padding = get_const_tuple(attrs.padding)
-    strides = get_const_tuple(attrs.strides)
-    dilation = get_const_tuple(attrs.dilation)
-    groups = attrs.groups
-    layout = attrs.data_layout
-    out_dtype = attrs.out_dtype
-    out_dtype = (inputs[0].dtype if out_dtype in ("same", "")
-                 else out_dtype)
-    assert layout == "NCHW", "only support nchw for now"
-    assert dilation == (1, 1), "not support dilate now"
-    assert groups == 1, "only support groups == 1 for now"
-    out = topi.nn.conv2d_transpose_nchw(
-        inputs[0], inputs[1], strides, padding, out_dtype)
-    output_padding = get_const_tuple(attrs.output_padding)
-    out = topi.nn.pad(out,
-                      [0, 0, 0, 0], [0, 0, output_padding[0], output_padding[1]])
-    return [out]
-
-# @reg.register_schedule("nn.conv2d_transpose")
-# def schedule_conv2d_transpose(attrs, outs, target):
-#     """Schedule definition of conv2d_transpose"""
-#     with target:
-#         return topi.generic.schedule_conv2d_transpose_nchw(outs)
+reg.register_strategy("nn.conv2d_transpose", strategy.conv2d_transpose_strategy)
+reg.register_pattern("nn.conv2d_transpose", OpPattern.OUT_ELEMWISE_FUSABLE)
 
 @reg.register_legalize("nn.conv2d_transpose")
 def legalize_conv2d_transpose(attrs, inputs, types):
@@ -294,8 +270,6 @@ def legalize_conv2d_transpose(attrs, inputs, types):
         The legalized expr
     """
     return topi.nn.conv2d_transpose_legalize(attrs, inputs, types)
-
-reg.register_pattern("nn.conv2d_transpose", OpPattern.OUT_ELEMWISE_FUSABLE)
 
 
 # conv3d
@@ -542,29 +516,6 @@ reg.register_pattern("nn.contrib_conv2d_winograd_nnpack_weight_transform",
 
 
 # conv2d_NCHWc
-# @reg.register_compute("nn.contrib_conv2d_NCHWc")
-# def compute_contrib_conv2d_NCHWc(attrs, inputs, out_dtype, target):
-#     """Compute definition of conv2d NCHWc"""
-#     # pylint: disable=assignment-from-no-return
-#     padding = attrs.get_int_tuple("padding")
-#     strides = attrs.get_int_tuple("strides")
-#     dilation = attrs.get_int_tuple("dilation")
-#     data_layout = attrs.get_str("data_layout")
-#     out_layout = attrs.get_str("out_layout")
-#     out_dtype = attrs.get_str("out_dtype")
-#     out_dtype = inputs[0].dtype if out_dtype == "" else out_dtype
-#
-#     out = topi.nn.conv2d_NCHWc(inputs[0], inputs[1], strides, padding, dilation,
-#                                data_layout, out_layout, out_dtype)
-#     return [out]
-
-
-# @reg.register_schedule("nn.contrib_conv2d_NCHWc")
-# def schedule_contrib_conv2d_NCHWc(attrs, outs, target):
-#     """Schedule definition of contrib_conv2d_NCHWc"""
-#     with target:
-#         return topi.generic.schedule_conv2d_NCHWc(outs)
-
 reg.register_strategy("nn.contrib_conv2d_NCHWc", strategy.conv2d_NCHWc_strategy)
 reg.register_pattern("nn.contrib_conv2d_NCHWc",
                      OpPattern.OUT_ELEMWISE_FUSABLE)
@@ -598,6 +549,7 @@ reg.register_pattern("nn.contrib_conv2d_NCHWc_int8",
                      OpPattern.OUT_ELEMWISE_FUSABLE)
 
 
+# depthwise_conv2d_NCHWc
 @reg.register_compute("nn.contrib_depthwise_conv2d_NCHWc")
 def compute_contrib_depthwise_conv2d_NCHWc(attrs, inputs, out_dtype, target):
     """Compute definition of depthwise conv2d NCHWc"""
@@ -649,45 +601,8 @@ reg.register_pattern("nn.bitpack", OpPattern.INJECTIVE)
 
 
 # bitserial_conv2d
-@reg.register_compute("nn.bitserial_conv2d")
-def compute_bitserial_conv2d(attrs, inputs, out_dtype):
-    """Compute definition for bitserial conv2d."""
-    padding = get_const_tuple(attrs.padding)
-    strides = get_const_tuple(attrs.strides)
-    activation_bits = attrs.activation_bits
-    weight_bits = attrs.weight_bits
-    layout = attrs.data_layout
-    pack_dtype = attrs.pack_dtype
-    out_dtype = attrs.out_dtype
-    unipolar = attrs.unipolar
-    if layout == 'NCHW':
-        with target:
-            out = topi.nn.bitserial_conv2d_nchw(
-                inputs[0], inputs[1], strides, padding, activation_bits,
-                weight_bits, pack_dtype, out_dtype, unipolar)
-    elif layout == 'NHWC':
-        with target:
-            out = topi.nn.bitserial_conv2d_nhwc(
-                inputs[0], inputs[1], strides, padding, activation_bits,
-                weight_bits, pack_dtype, out_dtype, unipolar)
-    else:
-        raise ValueError("Data layout not supported.")
-
-    return [out]
-
-
-# @reg.register_schedule("nn.bitserial_conv2d")
-# def schedule_bitserial_conv2d(attrs, outs, target):
-#     """Schedule definition for bitserial conv2d."""
-#     layout = attrs.data_layout
-#     if layout == 'NCHW':
-#         with target:
-#             return topi.generic.schedule_bitserial_conv2d_nchw(outs)
-#     elif layout == 'NHWC':
-#         with target:
-#             return topi.generic.schedule_bitserial_conv2d_nhwc(outs)
-#     else:
-#         raise ValueError("Data layout not supported.")
+reg.register_strategy("nn.bitserial_conv2d", strategy.bitserial_conv2d_strategy)
+reg.register_pattern("nn.bitserial_conv2d", OpPattern.OUT_ELEMWISE_FUSABLE)
 
 @reg.register_legalize("nn.bitserial_conv2d")
 def legalize_bitserial_conv2d(attrs, inputs, types):
@@ -708,9 +623,6 @@ def legalize_bitserial_conv2d(attrs, inputs, types):
         The legalized expr
     """
     return topi.nn.bitserial_conv2d_legalize(attrs, inputs, types)
-
-
-reg.register_pattern("nn.bitserial_conv2d", OpPattern.OUT_ELEMWISE_FUSABLE)
 
 
 # bitserial_dense

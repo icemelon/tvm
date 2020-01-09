@@ -19,7 +19,7 @@
 from __future__ import absolute_import
 import tvm
 from topi.util import get_const_tuple
-
+from .bitserial_util import bitpack
 
 def bitserial_dense(data, weight, data_bits, weight_bits, pack_dtype='uint32',
                     out_dtype='int16', unipolar=True):

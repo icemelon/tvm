@@ -25,12 +25,12 @@ from tvm import autotvm
 from .. import nn
 from ..util import traverse_inline
 
-@autotvm.register_topi_compute2('dense_biforst')
+@autotvm.register_topi_compute2('dense.biforst')
 def dense(_, data, weight, bias=None, out_dtype=None):
     """Dense operator on Biforst"""
     return nn.dense(data, weight, bias, out_dtype)
 
-@autotvm.register_topi_schedule2('dense_bifrost')
+@autotvm.register_topi_schedule2('dense.bifrost')
 def schedule_dense(cfg, outs):
     """Schedule for dense operator.
 

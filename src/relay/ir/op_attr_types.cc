@@ -17,6 +17,7 @@
  * under the License.
  */
 
+#include <tvm/expr.h>
 #include <tvm/relay/op_attr_types.h>
 
 namespace tvm {

@@ -73,6 +73,7 @@ def conv2d_strategy_cpu(attrs, inputs, out_type, target):
     groups = attrs.groups
     layout = attrs.data_layout
     kernel_layout = attrs.kernel_layout
+    dtype = inputs[0].dtype
 
     assert layout in ["NCHW", "NHWC"]
     (dilation_h, dilation_w) = dilation
@@ -89,7 +90,7 @@ def conv2d_strategy_cpu(attrs, inputs, out_type, target):
         elif layout == "NHWC":
             logger.warning("For x86 target, NCHW layout is recommended for conv2d.")
             strategy.add_implement(
-                wrap_compute_conv2d(topi.x86.conv2d_nhwc),
+                wrap_compute_conv2d(topi.nn.conv2d_nhwc),
                 wrap_topi_schedule(topi.x86.schedule_conv2d_nhwc))
     else:
         if layout == "NCHW" and get_conv2d_out_depth(inputs[1], kernel_layout) == groups:
@@ -121,12 +122,27 @@ def conv2d_NCHWc_strategy_cpu(attrs, inputs, out_type, target):
     return strategy
 
 @depthwise_conv2d_NCHWc_strategy.register("cpu")
-def depthwise_conv2d_NCHWc_strategy(attrs, inputs, out_type, target):
+def depthwise_conv2d_NCHWc_strategy_cpu(attrs, inputs, out_type, target):
     """depthwise_conv2d x86 strategy"""
     strategy = _op.OpStrategy()
     strategy.add_implement(
         wrap_compute_depthwise_conv2d_NCHWc(topi.x86.depthwise_conv2d.depthwise_conv2d_NCHWc),
         wrap_topi_schedule(topi.x86.schedule_depthwise_conv2d_NCHWc))
+    return strategy
+
+@conv2d_transpose_strategy.register("cpu")
+def conv2d_transpose_strategy_cpu(attrs, inputs, out_type, target):
+    """conv2d_transpose x86 strategy"""
+    layout = attrs.data_layout
+    dilation = get_const_tuple(attrs.dilation)
+    groups = attrs.groups
+    assert layout == "NCHW", "only support nchw for now"
+    assert dilation == (1, 1), "not support dilate now"
+    assert groups == 1, "only support groups == 1 for now"
+    strategy = _op.OpStrategy()
+    strategy.add_implement(
+        wrap_comptue_conv2d_transpose(topi.x86.conv2d_transpose_nchw),
+        wrap_topi_schedule(topi.x86.schedule_conv2d_transpose_nchw))
     return strategy
 
 @dense_strategy.register("cpu")
@@ -171,6 +187,23 @@ def roi_align_strategy_cpu(attrs, inputs, out_type, target):
     strategy = _op.OpStrategy()
     strategy.add_implement(wrap_compute_roi_align(topi.x86.roi_align_nchw),
                            wrap_topi_schedule(topi.generic.schedule_roi_align))
+    return strategy
+
+@bitserial_conv2d_strategy.register("cpu")
+def bitserial_conv2d_strategy_cpu(attrs, inputs, out_type, target):
+    """bitserial_conv2d x86 strategy"""
+    strategy = _op.OpStrategy()
+    layout = attrs.data_layout
+    if layout == "NCHW":
+        strategy.add_implement(
+            wrap_compute_bitserial_conv2d(topi.x86.bitserial_conv2d_nchw),
+            wrap_topi_schedule(topi.x86.schedule_bitserial_conv2d_nchw))
+    elif layout == "NHWC":
+        strategy.add_implement(
+            wrap_compute_bitserial_conv2d(topi.x86.bitserial_conv2d_nhwc),
+            wrap_topi_schedule(topi.x86.schedule_bitserial_conv2d_nhwc))
+    else:
+        raise ValueError("Data layout {} not supported.".format(layout))
     return strategy
 
 @bitserial_dense_strategy.register("cpu")

@@ -262,6 +262,39 @@ def deformable_conv2d_strategy(attrs, inputs, out_type, target):
                            wrap_topi_schedule(topi.generic.schedule_deformable_conv2d_nchw))
     return strategy
 
+# conv2d_transpose
+def wrap_comptue_conv2d_transpose(topi_compute):
+    """wrap conv2d_transpose topi compute"""
+    def compute_conv2d_transpose(attrs, inputs, out_dtype):
+        """Compute definition of conv2d_transpose"""
+        padding = get_const_tuple(attrs.padding)
+        strides = get_const_tuple(attrs.strides)
+        out_dtype = attrs.out_dtype
+        out_dtype = (inputs[0].dtype if out_dtype in ("same", "")
+                     else out_dtype)
+        out = topi_compute(
+            inputs[0], inputs[1], strides, padding, out_dtype)
+        output_padding = get_const_tuple(attrs.output_padding)
+        out = topi.nn.pad(out, [0, 0, 0, 0],
+                          [0, 0, output_padding[0], output_padding[1]])
+        return [out]
+    return compute_conv2d_transpose
+
+@override_native_generic_func("conv2d_transpose_strategy")
+def conv2d_transpose_strategy(attrs, inputs, out_type, target):
+    """conv2d_transpose generic strategy"""
+    layout = attrs.data_layout
+    dilation = get_const_tuple(attrs.dilation)
+    groups = attrs.groups
+    assert layout == "NCHW", "only support nchw for now"
+    assert dilation == (1, 1), "not support dilate now"
+    assert groups == 1, "only support groups == 1 for now"
+    strategy = _op.OpStrategy()
+    strategy.add_implement(
+        wrap_comptue_conv2d_transpose(topi.nn.conv2d_transpose_nchw),
+        wrap_topi_schedule(topi.generic.schedule_conv2d_transpose_nchw))
+    return strategy
+
 # conv3d
 def wrap_compute_conv3d(topi_compute):
     """wrap conv3d topi compute"""
@@ -533,6 +566,40 @@ def schedule_argwhere(attrs, outs, target):
     """schedule argwhere"""
     with target:
         return topi.generic.schedule_argwhere(outs)
+
+# bitserial_conv2d
+def wrap_compute_bitserial_conv2d(topi_compute):
+    """wrap bitserial_conv2d topi compute"""
+    def compute_bitserial_conv2d(attrs, inputs, out_dtype):
+        """Compute definition for bitserial conv2d."""
+        padding = get_const_tuple(attrs.padding)
+        strides = get_const_tuple(attrs.strides)
+        activation_bits = attrs.activation_bits
+        weight_bits = attrs.weight_bits
+        layout = attrs.data_layout
+        pack_dtype = attrs.pack_dtype
+        out_dtype = attrs.out_dtype
+        unipolar = attrs.unipolar
+        return [topi_compute(inputs[0], inputs[1], strides, padding, activation_bits,
+                             weight_bits, pack_dtype, out_dtype, unipolar)]
+    return compute_bitserial_conv2d
+
+@override_native_generic_func("bitserial_conv2d_strategy")
+def bitserial_conv2d_strategy(attrs, inputs, out_type, target):
+    """bitserial_conv2d generic strategy"""
+    strategy = _op.OpStrategy()
+    layout = attrs.data_layout
+    if layout == "NCHW":
+        strategy.add_implement(
+            wrap_compute_bitserial_conv2d(topi.nn.bitserial_conv2d_nchw),
+            wrap_topi_schedule(topi.generic.schedule_bitserial_conv2d_nchw))
+    elif layout == "NHWC":
+        strategy.add_implement(
+            wrap_compute_bitserial_conv2d(topi.nn.bitserial_conv2d_nhwc),
+            wrap_topi_schedule(topi.generic.schedule_bitserial_conv2d_nhwc))
+    else:
+        raise ValueError("Data layout {} not supported.".format(layout))
+    return strategy
 
 # bitserial_dense
 def wrap_compute_bitserial_dense(topi_compute):

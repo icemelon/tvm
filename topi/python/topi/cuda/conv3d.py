@@ -87,7 +87,7 @@ def schedule_conv3d_ncdhw(cfg, outs):
 
     def _callback(op):
         if op.tag == 'conv3d_ncdhw':
-            schedule_direct_conv3d_cuda(cfg, s, op.output(0))
+            schedule_direct_conv3d_cuda(cfg, s, op.output(0), "NCDHW")
 
     traverse_inline(s, outs[0].op, _callback)
     return s
@@ -155,7 +155,7 @@ def schedule_conv3d_ndhwc(cfg, outs):
 
     def _callback(op):
         if op.tag == 'conv3d_ndhwc':
-            schedule_direct_conv3d_cuda(cfg, s, op.output(0))
+            schedule_direct_conv3d_cuda(cfg, s, op.output(0), "NDHWC")
 
     traverse_inline(s, outs[0].op, _callback)
     return s

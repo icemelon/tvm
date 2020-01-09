@@ -18,7 +18,6 @@
 """Generic nn operators"""
 from __future__ import absolute_import as _abs
 import tvm
-from .. import cpp
 
 def _default_schedule(outs, auto_inline):
     """Default schedule for llvm."""
@@ -447,7 +446,6 @@ def schedule_softmax(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.override_native_generic_func("schedule_dense")
 def schedule_dense(outs):
     """Schedule for dense
 
@@ -582,6 +580,7 @@ def schedule_lrn(outs):
     """
     return _default_schedule(outs, False)
 
+
 def schedule_l2_normalize(outs):
     """Schedule for l2 normalize
 
@@ -597,6 +596,7 @@ def schedule_l2_normalize(outs):
         The computation schedule for the op.
     """
     return _default_schedule(outs, False)
+
 
 def schedule_sparse_dense(outs):
     """Schedule for sparse_dense
@@ -614,6 +614,7 @@ def schedule_sparse_dense(outs):
     """
     return _default_schedule(outs, False)
 
+
 def schedule_sparse_transpose(outs):
     """Schedule for sparse_transpose
 
@@ -629,6 +630,7 @@ def schedule_sparse_transpose(outs):
         The computation schedule for the op.
     """
     return _default_schedule(outs, False)
+
 
 def schedule_batch_matmul(outs):
     """Schedule for batch_matmul

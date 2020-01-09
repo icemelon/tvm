@@ -34,6 +34,38 @@ def schedule_concatenate_arm_cpu(_, outs, target):
     with target:
         return topi.arm_cpu.schedule_concatenate(outs)
 
+@conv2d_transpose_strategy.register("arm_cpu")
+def conv2d_transpose_strategy_arm_cpu(attrs, inputs, out_type, target):
+    """conv2d_transpose arm cpu strategy"""
+    layout = attrs.data_layout
+    dilation = get_const_tuple(attrs.dilation)
+    groups = attrs.groups
+    assert layout == "NCHW", "only support nchw for now"
+    assert dilation == (1, 1), "not support dilate now"
+    assert groups == 1, "only support groups == 1 for now"
+    strategy = _op.OpStrategy()
+    strategy.add_implement(
+        wrap_comptue_conv2d_transpose(topi.arm_cpu.conv2d_transpose_nchw),
+        wrap_topi_schedule(topi.arm_cpu.schedule_conv2d_transpose_nchw))
+    return strategy
+
+@bitserial_conv2d_strategy.register("arm_cpu")
+def bitserial_conv2d_strategy_cpu(attrs, inputs, out_type, target):
+    """bitserial_conv2d x86 strategy"""
+    strategy = _op.OpStrategy()
+    layout = attrs.data_layout
+    if layout == "NCHW":
+        strategy.add_implement(
+            wrap_compute_bitserial_conv2d(topi.x86.bitserial_conv2d_nchw),
+            wrap_topi_schedule(topi.x86.schedule_bitserial_conv2d_nchw))
+    elif layout == "NHWC":
+        strategy.add_implement(
+            wrap_compute_bitserial_conv2d(topi.arm_cpu.bitserial_conv2d_nhwc),
+            wrap_topi_schedule(topi.arm_cpu.schedule_bitserial_conv2d_nhwc))
+    else:
+        raise ValueError("Data layout {} not supported.".format(layout))
+    return strategy
+
 @bitserial_dense_strategy.register("arm_cpu")
 def schedule_bitserial_dense_arm_cpu(attrs, inputs, out_type, target):
     """bitserial_dense arm cpu strategy"""

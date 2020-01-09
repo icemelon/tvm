@@ -19,14 +19,15 @@
 """CUDA specific declaration and schedules."""
 from __future__ import absolute_import as _abs
 
-from . import conv2d, depthwise_conv2d, conv2d_transpose_nchw, \
-              group_conv2d_nchw, dense
+# from . import conv2d, depthwise_conv2d, conv2d_transpose_nchw, \
+#               group_conv2d_nchw, dense
 from .conv3d import *
-from .conv2d_hwcn import schedule_conv2d_hwcn
+#from .conv2d_hwcn import schedule_conv2d_hwcn
+from .conv2d_transpose_nchw import *
 from .conv1d_transpose_ncw import *
-from .depthwise_conv2d import schedule_depthwise_conv2d_backward_input_nhwc
-from .depthwise_conv2d import schedule_depthwise_conv2d_backward_weight_nhwc
-from .group_conv2d_nchw import schedule_conv2d_nchw_cuda
+# from .depthwise_conv2d import schedule_depthwise_conv2d_backward_input_nhwc
+# from .depthwise_conv2d import schedule_depthwise_conv2d_backward_weight_nhwc
+# from .group_conv2d_nchw import schedule_conv2d_nchw_cuda
 from .deformable_conv2d import *
 from .reduction import schedule_reduce
 from .softmax import schedule_softmax
@@ -36,8 +37,7 @@ from .pooling import *
 from .nn import schedule_lrn, schedule_l2_normalize
 from .batch_matmul import *
 from .vision import *
-from . import ssd
 from .ssd import *
-from .nms import *
+from .nms import get_valid_counts, non_max_suppression
 from .rcnn import *
 from .sort import *
