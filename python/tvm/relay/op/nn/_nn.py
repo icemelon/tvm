@@ -640,15 +640,14 @@ def compute_bitpack(attrs, inputs, out_dtype):
     bit_axis = attrs.bit_axis
     pack_type = attrs.pack_type
     name = attrs.name
-    with target:
-        out = topi.nn.bitpack(inputs[0], bits, pack_axis, bit_axis, pack_type,
-                              name)
+    out = topi.nn.bitpack(inputs[0], bits, pack_axis, bit_axis, pack_type, name)
     return [out]
 
 reg.register_schedule("nn.bitpack", strategy.schedule_bitpack)
 reg.register_pattern("nn.bitpack", OpPattern.INJECTIVE)
 
 
+# bitserial_conv2d
 @reg.register_compute("nn.bitserial_conv2d")
 def compute_bitserial_conv2d(attrs, inputs, out_dtype):
     """Compute definition for bitserial conv2d."""
@@ -711,6 +710,7 @@ def legalize_bitserial_conv2d(attrs, inputs, types):
 
 
 reg.register_pattern("nn.bitserial_conv2d", OpPattern.OUT_ELEMWISE_FUSABLE)
+
 
 # bitserial_dense
 reg.register_strategy("nn.bitserial_dense", strategy.bitserial_dense_strategy)

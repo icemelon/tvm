@@ -21,7 +21,7 @@ import topi
 import topi.testing
 import math
 
-from common import get_all_backend
+from common import get_all_backend, get_schedule_injective
 
 def verify_resize(batch, in_channel, in_height, in_width, out_height, out_width,
                   layout='NCHW', coord_trans="align_corners", method="bilinear"):
@@ -53,7 +53,7 @@ def verify_resize(batch, in_channel, in_height, in_width, out_height, out_width,
             return
         print("Running on target: %s" % device)
         with tvm.target.create(device):
-            s = topi.generic.schedule_injective(B)
+            s = get_schedule_injective(device)(B)
         a = tvm.nd.array(a_np, ctx)
         b = tvm.nd.array(np.zeros(out_shape, dtype=dtype), ctx)
         f = tvm.build(s, [A, B], device)
@@ -117,7 +117,7 @@ def verify_resize3d(batch, in_channel, in_depth, in_height, in_width, out_depth,
             return
         print("Running on target: %s" % device)
         with tvm.target.create(device):
-            s = topi.generic.schedule_injective(B)
+            s = get_schedule_injective(device)(B)
         a = tvm.nd.array(a_np, ctx)
         b = tvm.nd.array(np.zeros(out_shape, dtype=dtype), ctx)
         f = tvm.build(s, [A, B], device)

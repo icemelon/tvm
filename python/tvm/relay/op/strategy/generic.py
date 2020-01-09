@@ -97,6 +97,7 @@ def schedule_l2_normalize(attrs, outs, target):
 # bitpack
 @generic_func
 def schedule_bitpack(attrs, outs, target):
+    """Schedule bitpack"""
     with target:
         return topi.generic.schedule_bitpack(outs)
 
@@ -453,7 +454,8 @@ def schedule_argwhere(attrs, outs, target):
         return topi.generic.schedule_argwhere(outs)
 
 # bitserial_dense
-def wrap_compute_bitserial_dense(topi_func):
+def wrap_compute_bitserial_dense(topi_compute):
+    """wrap bitserial_dense topi compute"""
     def compute_bitserial_dense(attrs, inputs, out_type):
         """Compute definition of bitserial dense"""
         data_bits = attrs.data_bits
@@ -462,15 +464,13 @@ def wrap_compute_bitserial_dense(topi_func):
         out_dtype = attrs.out_dtype
         out_dtype = inputs[0].dtype if out_dtype == "" else out_dtype
         unipolar = attrs.unipolar
-        return [
-            topi_func(inputs[0], inputs[1], data_bits, weight_bits, pack_dtype,
-                      out_dtype, unipolar)
-        ]
+        return [topi_compute(inputs[0], inputs[1], data_bits, weight_bits,
+                             pack_dtype, out_dtype, unipolar)]
     return compute_bitserial_dense
-
 
 @override_native_generic_func("bitserial_dense_strategy")
 def bitserial_dense_strategy(attrs, inputs, out_type, target):
+    """bitserial_dense generic strategy"""
     strategy = _op.OpStrategy()
     strategy.add_implement(
         wrap_compute_bitserial_dense(topi.nn.bitserial_dense),

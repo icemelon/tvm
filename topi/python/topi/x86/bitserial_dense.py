@@ -24,8 +24,8 @@ from .bitserial_util import bitpack, binary_op_multiplier
 from .. import tag
 
 @autotvm.register_topi_compute2('bitserial_dense.x86')
-def bitserial_dense_default(cfg, data, weight, data_bits, weight_bits, pack_dtype='uint32',
-                            out_dtype='int16', unipolar=True):
+def bitserial_dense(cfg, data, weight, data_bits, weight_bits, pack_dtype='uint32',
+                    out_dtype='int16', unipolar=True):
     """Bitserial dense implementation. TODO: Why are these separate
 
     Parameters

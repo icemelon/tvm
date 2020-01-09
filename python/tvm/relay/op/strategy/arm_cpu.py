@@ -20,6 +20,7 @@ from __future__ import absolute_import
 
 import topi
 from .generic import *
+from .. import op as _op
 
 @schedule_injective.register("arm_cpu")
 def schedule_injective_arm_cpu(_, outs, target):
@@ -35,8 +36,9 @@ def schedule_concatenate_arm_cpu(_, outs, target):
 
 @bitserial_dense_strategy.register("arm_cpu")
 def schedule_bitserial_dense_arm_cpu(attrs, inputs, out_type, target):
+    """bitserial_dense arm cpu strategy"""
     strategy = _op.OpStrategy()
     strategy.add_implement(
-        wrap_compute_bitserial_dense(topi.arm_cpu.bitserial_dense_default),
+        wrap_compute_bitserial_dense(topi.arm_cpu.bitserial_dense),
         wrap_topi_schedule(topi.arm_cpu.schedule_bitserial_dense))
     return strategy

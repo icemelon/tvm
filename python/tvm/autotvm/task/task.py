@@ -381,7 +381,7 @@ def args_to_workload2(x, task_name=None):
     if isinstance(x, tensor.Tensor):
         workload = get_const_tuple(x.shape) + (x.dtype, )
     elif isinstance(x, (tuple, list, container.Array)):
-        workload = tuple([args_to_workload(a) for a in x])
+        workload = tuple([args_to_workload2(a) for a in x])
     elif isinstance(x, (str, int, float, np.int, np.float, expr.Var)):
         workload = x
     elif isinstance(x, (expr.StringImm, expr.UIntImm, expr.IntImm, expr.FloatImm)):

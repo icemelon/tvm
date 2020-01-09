@@ -29,7 +29,7 @@ from .injective import *
 from .reduction import *
 from .pooling import schedule_pool, schedule_adaptive_pool
 from .bitserial_conv2d import schedule_bitserial_conv2d
-from .bitserial_dense import schedule_bitserial_dense
+from .bitserial_dense import *
 from .depthwise_conv2d import schedule_depthwise_conv2d_NCHWc
 from .dense import *
 from .dense import _schedule_dense, _schedule_dense_pack, _schedule_dense_nopack

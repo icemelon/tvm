@@ -128,9 +128,9 @@ def roi_align_strategy_cpu(attrs, inputs, out_type, target):
 
 @bitserial_dense_strategy.register("cpu")
 def bitserial_dense_strategy_cpu(attrs, inputs, out_type, target):
+    """bitserial_dense x86 strategy"""
     strategy = _op.OpStrategy()
     strategy.add_implement(
-        wrap_compute_bitserial_dense(
-            topi.x86.bitserial_dense.bitserial_dense_default),
+        wrap_compute_bitserial_dense(topi.x86.bitserial_dense),
         wrap_topi_schedule(topi.x86.schedule_bitserial_dense))
     return strategy
