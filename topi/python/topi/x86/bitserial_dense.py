@@ -23,7 +23,6 @@ from topi.util import get_const_int
 from .bitserial_util import bitpack, binary_op_multiplier
 from .. import tag
 
-#@autotvm.register_topi_compute(bitserial_dense, ['cpu'], 'direct')
 @autotvm.register_topi_compute2('bitserial_dense.x86')
 def bitserial_dense_default(cfg, data, weight, data_bits, weight_bits, pack_dtype='uint32',
                             out_dtype='int16', unipolar=True):
@@ -98,7 +97,6 @@ def bitserial_dense_default(cfg, data, weight, data_bits, weight_bits, pack_dtyp
         return matmul_unipolar
     return matmul
 
-#@autotvm.register_topi_schedule(generic.nn.schedule_bitserial_dense, ['cpu'], 'direct')
 @autotvm.register_topi_schedule2('biserial_dense.x86')
 def schedule_bitserial_dense(cfg, outs):
     """Schedule for bitserial_dense.

@@ -21,7 +21,6 @@ import tvm
 from topi.util import get_const_tuple
 
 
-@tvm.target.override_native_generic_func("bitserial_dense")
 def bitserial_dense(data, weight, data_bits, weight_bits, pack_dtype='uint32',
                     out_dtype='int16', unipolar=True):
     """The default implementation of bitserial dense in topi.

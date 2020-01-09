@@ -716,7 +716,7 @@ def legalize_bitserial_conv2d(attrs, inputs, types):
 
 reg.register_pattern("nn.bitserial_conv2d", OpPattern.OUT_ELEMWISE_FUSABLE)
 
-
+# bitserial_dense
 reg.register_strategy("nn.bitserial_dense", strategy.bitserial_dense_strategy)
 reg.register_pattern("nn.bitserial_dense", reg.OpPattern.OUT_ELEMWISE_FUSABLE)
 
