@@ -15,19 +15,22 @@
 # specific language governing permissions and limitations
 # under the License.
 # pylint: disable=invalid-name,unused-variable
-"""dense schedule on ARM Mali GPU"""
+"""dense schedule on ARM Mali Biforst GPU"""
 
 from __future__ import absolute_import as _abs
 
 import tvm
 from tvm import autotvm
 
-from .. import generic, nn
+from .. import nn
 from ..util import traverse_inline
 
-autotvm.register_topi_compute(nn.dense, 'bifrost', 'direct', nn.dense.fdefault)
+@autotvm.register_topi_compute2('dense_biforst')
+def dense(_, data, weight, bias=None, out_dtype=None):
+    """Dense operator on Biforst"""
+    return nn.dense(data, weight, bias, out_dtype)
 
-@autotvm.register_topi_schedule(generic.schedule_dense, 'bifrost', 'direct')
+@autotvm.register_topi_schedule2('dense_bifrost')
 def schedule_dense(cfg, outs):
     """Schedule for dense operator.
 

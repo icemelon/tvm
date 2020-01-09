@@ -14,8 +14,8 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""Definition of mali operator strategy."""
-# pylint: disable=invalid-name,unused-argument,wildcard-import,unused-wildcard-import
+"""Definition of biforst operator strategy."""
+# pylint: disable=invalid-name,unused-argument
 
 from __future__ import absolute_import
 
@@ -23,10 +23,10 @@ import topi
 from .generic import dense_strategy
 from .. import op as _op
 
-@dense_strategy.register(["mali"])
-def dense_strategy_mali(attrs, inputs, out_type, target):
-    """dense mali strategy"""
+
+@dense_strategy.register(["biforst"])
+def dense_strategy_biforst(attrs, inputs, out_type, target):
     strategy = _op.OpStrategy()
-    strategy.add_implement(wrap_compute_dense(topi.mali.dense),
-                           wrap_topi_schedule(topi.mali.schedule_dense))
+    strategy.add_implement(wrap_compute_dense(topi.biforst.dense),
+                           wrap_topi_schedule(topi.biforst.schedule_dense))
     return strategy
