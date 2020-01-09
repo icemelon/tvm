@@ -550,7 +550,6 @@ def schedule_binarize_pack(outs):
     return _default_schedule(outs, False)
 
 
-@tvm.target.override_native_generic_func("schedule_bitpack")
 def schedule_bitpack(outs):
     """Schedule for bitpack
     Parameters
