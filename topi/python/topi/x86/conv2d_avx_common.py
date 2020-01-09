@@ -232,7 +232,7 @@ def _schedule_conv_NCHWc(s, cfg, data_vec, kernel_vec, conv_out, last):
     return s
 
 
-def _schedule_conv_NCHWc_int8(s, cfg, data, conv_out, last):
-    return conv2d_generic.schedule_conv_NCHWc_cpu_common_int8(s, cfg, data, conv_out, last,
-                                                              int32_lanes=16,
+def _schedule_conv_NCHWc_int8(s, cfg, data_vec, kernel_vec, conv_out, last):
+    return conv2d_generic.schedule_conv_NCHWc_cpu_common_int8(s, cfg, data_vec, kernel_vec,
+                                                              conv_out, last, int32_lanes=16,
                                                               intrin=dot_16x1x16_uint8_int8_int32())

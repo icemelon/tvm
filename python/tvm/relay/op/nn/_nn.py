@@ -544,7 +544,7 @@ def compute_contrib_conv2d_NCHWc_int8(attrs, inputs, out_dtype):
 #     with target:
 #         return topi.generic.schedule_conv2d_NCHWc_int8(outs)
 
-
+reg.register_strategy("nn.contrib_conv2d_NCHWc_int8", strategy.conv2d_NCHWc_int8_strategy)
 reg.register_pattern("nn.contrib_conv2d_NCHWc_int8",
                      OpPattern.OUT_ELEMWISE_FUSABLE)
 
