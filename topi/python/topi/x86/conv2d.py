@@ -77,6 +77,7 @@ def _conv2d_infer_layout(workload, cfg):
 # It is not used as x86 conv2d NCHW strategy, since
 # alter_op_layout pass and conv2d_NCHWc strategy can
 # eliminate input and output data layout transformations.
+@autotvm.register_topi_compute2("conv2d_nchw.x86")
 def conv2d_nchw(cfg, data, kernel, strides, padding, dilation, layout, out_dtype):
     packed_out = conv2d_NCHWc(cfg, data, kernel, strides, padding,
                               dilation, layout, layout, out_dtype)
@@ -96,6 +97,7 @@ def conv2d_nchw(cfg, data, kernel, strides, padding, dilation, layout, out_dtype
 
     return unpacked_out
 
+@autotvm.register_topi_schedule2("conv2d_nchw.x86")
 def schedule_conv2d_nchw(cfg, outs):
     return schedule_conv2d_NCHWc(cfg, outs)
 
@@ -108,7 +110,7 @@ def conv2d_nhwc(_, data, kernel, strides, padding, dilation, layout, out_dtype):
     return nn.conv2d_nhwc(data, kernel, strides, padding, dilation, out_dtype)
 
 @autotvm.register_topi_schedule2("conv2d_nhwc.x86")
-def schedule_conv2d_nhwc(outs):
+def schedule_conv2d_nhwc(cfg, outs):
     """Create schedule for tensors"""
     s = tvm.create_schedule([x.op for x in outs])
     output_op = outs[0].op
