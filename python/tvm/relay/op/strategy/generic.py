@@ -200,10 +200,14 @@ def wrap_compute_conv2d_NCHWc(topi_compute):
 def conv2d_NCHWc_strategy(attrs, inputs, out_type, target):
     """conv2d_NCHWc generic strategy"""
     strategy = _op.OpStrategy()
-    strategy.add_implement(
-        wrap_compute_conv2d_NCHWc(topi.nn.conv2d_NCHWc_compute),
-        wrap_topi_schedule(topi.generic.schedule_conv2d_NCHWc))
-    return strategy
+    if inputs[0].dtype == "int8" or inputs[0].dtype == "uint8":
+        strategy.add_implement(
+            wrap_compute_conv2d_NCHWc(topi.nn.conv2d_NCHWc_int8_compute),
+            wrap_topi_schedule(topi.generic.schedule_conv2d_NCHWc_int8))
+    else:
+        strategy.add_implement(
+            wrap_compute_conv2d_NCHWc(topi.nn.conv2d_NCHWc_compute),
+            wrap_topi_schedule(topi.generic.schedule_conv2d_NCHWc))
 
 # depthwise_conv2d_NCHWc
 def wrap_compute_depthwise_conv2d_NCHWc(topi_func):
