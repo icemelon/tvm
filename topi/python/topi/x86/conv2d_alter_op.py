@@ -156,7 +156,7 @@ def _alter_conv2d_layout(attrs, inputs, tinfo, F):
                                                       out_dtype],
                                                      conv2d_NCHWc_int8)
         dispatch_ctx.update(target, new_workload, cfg)
-        return F.nn.contrib_conv2d_nchwc_int8(*copy_inputs, **new_attrs)
+        return F.nn.contrib_conv2d_nchwc(*copy_inputs, **new_attrs)
 
     # (oc, ic, h, w) -> (OC, IC, h, w, ic, oc)
     new_attrs['kernel_layout'] = 'OIHW%di%do' % (ic_bn, oc_bn)

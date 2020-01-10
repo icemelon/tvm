@@ -118,16 +118,12 @@ def conv2d_strategy_cpu(attrs, inputs, out_type, target):
 def conv2d_NCHWc_strategy_cpu(attrs, inputs, out_type, target):
     """conv2d_NCHWc x86 strategy"""
     strategy = _op.OpStrategy()
-    strategy.add_implement(wrap_compute_conv2d_NCHWc(topi.x86.conv2d_NCHWc),
-                           wrap_topi_schedule(topi.x86.schedule_conv2d_NCHWc))
-    return strategy
-
-@conv2d_NCHWc_int8_strategy.register("cpu")
-def conv2d_NCHWc_int8_strategy_cpu(attrs, inputs, out_type, target):
-    """conv2d_NCHWc_int8 x86 strategy"""
-    strategy = _op.OpStrategy()
-    strategy.add_implement(wrap_compute_conv2d_NCHWc(topi.x86.conv2d_int8.conv2d_NCHWc_int8),
-                           wrap_topi_schedule(topi.x86.schedule_conv2d_NCHWc_int8))
+    if inputs[0].dtype == "int8" or inputs[0].dtype == "uint8":
+        strategy.add_implement(wrap_compute_conv2d_NCHWc(topi.x86.conv2d_int8.conv2d_NCHWc_int8),
+                               wrap_topi_schedule(topi.x86.schedule_conv2d_NCHWc_int8))
+    else:
+        strategy.add_implement(wrap_compute_conv2d_NCHWc(topi.x86.conv2d_NCHWc),
+                               wrap_topi_schedule(topi.x86.schedule_conv2d_NCHWc))
     return strategy
 
 @depthwise_conv2d_NCHWc_strategy.register("cpu")

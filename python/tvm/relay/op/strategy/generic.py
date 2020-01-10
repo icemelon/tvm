@@ -205,16 +205,6 @@ def conv2d_NCHWc_strategy(attrs, inputs, out_type, target):
         wrap_topi_schedule(topi.generic.schedule_conv2d_NCHWc))
     return strategy
 
-# conv2d_NCHWc_int8
-@override_native_generic_func("conv2d_NCHWc_int8_strategy")
-def conv2d_NCHWc_int8_strategy(attrs, inputs, out_type, target):
-    """conv2d_NCHWc_int8 generic strategy"""
-    strategy = _op.OpStrategy()
-    strategy.add_implement(
-        wrap_compute_conv2d_NCHWc(topi.nn.conv2d_NCHWc_int8_compute),
-        wrap_topi_schedule(topi.generic.schedule_conv2d_NCHWc_int8))
-    return strategy
-
 # depthwise_conv2d_NCHWc
 def wrap_compute_depthwise_conv2d_NCHWc(topi_func):
     """wrap depthwise_conv2d_NCHWc topi compute"""
