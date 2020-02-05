@@ -21,7 +21,7 @@ import tvm
 from tvm import autotvm
 from tvm.autotvm import MeasureInput, MeasureResult
 
-@autotvm.template
+@autotvm.register_customized_task("testing/matmul")
 def matmul(N, L, M, dtype):
     A = tvm.placeholder((N, L), name='A', dtype=dtype)
     B = tvm.placeholder((L, M), name='B', dtype=dtype)
@@ -48,7 +48,7 @@ def matmul(N, L, M, dtype):
 
     return s, [A, B, C]
 
-@autotvm.template
+@autotvm.register_customized_task("testing/bad_matmul")
 def bad_matmul(N, L, M, dtype):
     if 'bad_device' in tvm.target.current_target().keys:
         A = tvm.placeholder((N, L), name='A', dtype=dtype)
@@ -70,7 +70,7 @@ def bad_matmul(N, L, M, dtype):
 def get_sample_task(n=128):
     """return a sample task for testing"""
     target = tvm.target.create("llvm")
-    task = autotvm.task.create(matmul, args=(n, n, n, 'float32'), target=target)
+    task = autotvm.task.create("testing/matmul", args=(n, n, n, 'float32'), target=target)
     return task, target
 
 def get_sample_records(n):
