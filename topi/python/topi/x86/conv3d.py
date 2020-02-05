@@ -18,7 +18,7 @@
 # pylint: disable=unused-argument, redefined-builtin, no-else-return
 """Conv3D operators"""
 import tvm
-from .. import generic, tag
+from .. import tag
 from ..util import traverse_inline
 
 def schedule_conv3d_ndhwc(outs):
