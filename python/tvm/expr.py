@@ -864,7 +864,7 @@ class Let(PrimExpr):
             _make.Let, var, value, body)
 
 
-@register_object
+@tvm._ffi.register_object
 class Any(PrimExpr):
     """Any node.
     """
