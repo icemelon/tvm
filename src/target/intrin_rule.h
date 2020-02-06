@@ -41,6 +41,8 @@ struct FloatSuffix {
       return name + 'f';
     } else if (t == DataType::Float(64)) {
       return name;
+    } else if (t == DataType::Float(16)) {
+      return name;
     } else {
       return "";
     }

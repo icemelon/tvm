@@ -28,6 +28,7 @@
 #include <tvm/tir/expr.h>
 #include <tvm/tir/data_layout.h>
 #include <tvm/runtime/packed_func.h>
+#include <tvm/runtime/half_t.h>
 #include <topi/transform.h>
 #include <topi/elemwise.h>
 #include <topi/broadcast.h>
@@ -1162,11 +1163,15 @@ double ToScalar(const runtime::NDArray& array) {
       return reinterpret_cast<uint64_t*>(array->data)[0];
     }
   } else if (array->dtype.code == kDLFloat) {
-#if (__ARM_FP16_FORMAT_IEEE == 1)
     if (array->dtype.bits == 16) {
+#if (__ARM_FP16_FORMAT_IEEE == 1)
       return reinterpret_cast<__fp16*>(array->data)[0];
-    }
+#else
+      datatype::half_t h;
+      h.half_ = reinterpret_cast<uint16_t*>(array->data)[0];
+      return h;
 #endif
+    }
     if (array->dtype.bits == 32) {
       return reinterpret_cast<float*>(array->data)[0];
     } else if (array->dtype.bits == 64) {
