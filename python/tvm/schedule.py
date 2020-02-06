@@ -650,7 +650,7 @@ class Stage(Object):
         """
         _api_internal._StageOpenGL(self)
 
-@register_object
+@tvm._ffi.register_object
 class SpecializedCondition(Object):
     """Specialized condition to enable op specialization."""
     def __init__(self, conditions):
