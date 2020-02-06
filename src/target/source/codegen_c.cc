@@ -146,7 +146,7 @@ void CodeGenC::PrintSSAAssign(
 
 // Print a reference expression to a buffer.
 std::string CodeGenC::GetBufferRef(
-    DataType t, const VarNode* buffer, PrimExpr index) {
+    DataType t, const VarNode* buffer, PrimExpr index, bool is_store) {
   std::ostringstream os;
   std::string vid = GetVarID(buffer);
   std::string scope;
@@ -157,7 +157,7 @@ std::string CodeGenC::GetBufferRef(
   if (t.lanes() == 1) {
     if (!HandleTypeMatch(buffer, t) || is_vol) {
       os << "((";
-      if (is_vol) {
+      if (is_vol) { // && is_store) {
         os << "volatile ";
       }
       if (scope.length() != 0) {
@@ -186,7 +186,7 @@ std::string CodeGenC::GetBufferRef(
       }
     }
     os << "((";
-    if (is_vol) {
+    if (is_vol) { // && is_store) {
       os << "volatile ";
     }
     if (scope.length() != 0) {
@@ -303,7 +303,7 @@ std::string CodeGenC::GetVecLoad(
 void CodeGenC::PrintVecStore(const VarNode* buffer,
                              DataType t, PrimExpr base,
                              const std::string& value) {
-  std::string ref = GetBufferRef(t, buffer, base);
+  std::string ref = GetBufferRef(t, buffer, base, true);
   this->PrintIndent();
   stream << ref << " = " << value << ";\n";
 }
@@ -672,7 +672,7 @@ void CodeGenC::VisitStmt_(const StoreNode* op) {
   DataType t = op->value.dtype();
   if (t.lanes() == 1) {
     std::string value = this->PrintExpr(op->value);
-    std::string ref  = this->GetBufferRef(t, op->buffer_var.get(), op->index);
+    std::string ref  = this->GetBufferRef(t, op->buffer_var.get(), op->index, true);
     this->PrintIndent();
     stream << ref << " = " << value << ";\n";
   } else {

@@ -44,7 +44,8 @@ class CodeGenOpenGL final : public CodeGenC {
   void BindThreadIndex(const IterVar& iv) final;
   void VisitStmt_(const StoreNode* op) final;
   std::string TexelFetch(const VarNode* buffer, PrimExpr index);
-  std::string GetBufferRef(DataType t, const VarNode* buffer, PrimExpr index) final;
+  std::string GetBufferRef(DataType t, const VarNode* buffer, PrimExpr index,
+                           bool is_store=false) final;
   void PrintType(DataType t, std::ostream& os) final; // NOLINT(*)
 
   // Codegen for immediate values

@@ -180,7 +180,7 @@ class CodeGenC :
       DataType t, const PrimExpr& buffer, const PrimExpr& index, int kind);
   // print reference to a buffer as type t in index.
   virtual std::string GetBufferRef(
-      DataType t, const VarNode* buffer, PrimExpr index);
+      DataType t, const VarNode* buffer, PrimExpr index, bool is_store=false);
   /*!
    * \brief If buffer is allocated as type t.
    * \param buf_var The buffer variable.

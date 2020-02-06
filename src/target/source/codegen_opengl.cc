@@ -206,7 +206,7 @@ std::string CodeGenOpenGL::TexelFetch(const VarNode* buffer, PrimExpr index) {
 // Print a reference expression to a buffer.
 // Format: texelFetch(buffer, index, 0).r
 std::string CodeGenOpenGL::GetBufferRef(
-    DataType t, const VarNode* buffer, PrimExpr index) {
+    DataType t, const VarNode* buffer, PrimExpr index, bool is_store) {
   CHECK_EQ(t.lanes(), 1) << "Vector type not supported.";
   CHECK(HandleTypeMatch(buffer, t)) << "Type mismatch not supported.";
 
