@@ -57,6 +57,12 @@ std::string CodeGenCUDA::Finish() {
                 << "{\n  return __hgt(__half(a), __half(b)) ? a : b;\n}\n";
     decl_stream << "__device__ half min(half a, half b)\n"
                 << "{\n  return __hlt(__half(a), __half(b)) ? a : b;\n}\n";
+    decl_stream << "__device__ half hpow(half a, half b)\n"
+                << "{\n  return __float2half(powf(__half2float(a), __half2float(b)));\n}\n";
+    decl_stream << "__device__ half htanh(half a)\n"
+                << "{\n  return __float2half(tanhf(__half2float(a)));\n}\n";
+    decl_stream << "__device__ half herf(half a)\n"
+                << "{\n  return __float2half(erff(__half2float(a)));\n}\n";
     // FIXME(tvm-team): "volatile" is used to enable cross thread reduction,
     // which is needed by operations such as softmax.
     // However, volatile overloading is not supported in NVRTC and CUDA < 9.2.
