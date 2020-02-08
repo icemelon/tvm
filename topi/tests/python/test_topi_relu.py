@@ -19,9 +19,10 @@ import os
 import numpy as np
 import tvm
 import topi
+import topi.testing
 from topi.util import get_const_tuple
 
-from common import get_all_backend, get_schedule_elemwise
+from common import get_all_backend
 
 def verify_relu(m, n):
     A = tvm.placeholder((m, n), name='A')
@@ -37,7 +38,7 @@ def verify_relu(m, n):
             return
         print("Running on target: %s" % device)
         with tvm.target.create(device):
-            s = get_schedule_elemwise(device)(B)
+            s = topi.testing.get_elemwise_schedule(device)(B)
 
         a = tvm.nd.array(a_np, ctx)
         b = tvm.nd.array(np.zeros(get_const_tuple(B.shape), dtype=B.dtype), ctx)
