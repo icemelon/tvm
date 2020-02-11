@@ -21,7 +21,6 @@ import tvm
 from .. import generic
 
 
-@generic.schedule_binarize_pack.register(["cpu"])
 def schedule_binarize_pack(outs):
     """Schedule for binarize_pack.
 
