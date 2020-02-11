@@ -19,7 +19,6 @@
 from __future__ import absolute_import as _abs
 import tvm
 from .. import tag
-from .. import generic
 
 
 def schedule_binary_dense(outs):

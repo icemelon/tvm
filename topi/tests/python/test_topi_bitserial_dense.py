@@ -37,7 +37,7 @@ def generate_quantized_np(shape, bits, out_dtype):
 def verify_bitserial_dense(batch, in_dim, out_dim, activation_bits, weight_bits, unipolar):
     out_dtype = 'int16'
 
-    def get_ref_data(a_shape, b_shape):
+    def get_ref_data(a_shape, b_shape, input_dtype):
         a_np = generate_quantized_np(get_const_tuple(a_shape), activation_bits, input_dtype)
         b_np = generate_quantized_np(get_const_tuple(b_shape), weight_bits, input_dtype)
         if unipolar:
@@ -63,7 +63,7 @@ def verify_bitserial_dense(batch, in_dim, out_dim, activation_bits, weight_bits,
 
         a_shape = get_const_tuple(A.shape)
         b_shape = get_const_tuple(B.shape)
-        a_np, b_np, c_np = get_ref_data(a_shape, b_shape)
+        a_np, b_np, c_np = get_ref_data(a_shape, b_shape, input_dtype)
 
         ctx = tvm.cpu(0)
         a = tvm.nd.array(a_np, ctx)
