@@ -672,16 +672,17 @@ class SpecializedCondition(Object):
         self.__init_handle_by_constructor__(
             _api_internal._CreateSpecializedCondition, conditions)
 
+    @staticmethod
+    def current(self):
+        """Returns the current specialized condition"""
+        return _api_internal._GetCurrentSpecialization()
+
     def __enter__(self):
         _api_internal._EnterSpecializationScope(self)
         return self
 
     def __exit__(self, ptype, value, trace):
         _api_internal._ExitSpecializationScope(self)
-
-
-def current_specialization():
-    return _api_internal._GetCurrentSpecialization()
 
 
 tvm._ffi._init_api("tvm.schedule")
