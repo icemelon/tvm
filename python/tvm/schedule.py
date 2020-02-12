@@ -673,7 +673,7 @@ class SpecializedCondition(Object):
             _api_internal._CreateSpecializedCondition, conditions)
 
     @staticmethod
-    def current(self):
+    def current():
         """Returns the current specialized condition"""
         return _api_internal._GetCurrentSpecialization()
 
