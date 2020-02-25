@@ -43,6 +43,8 @@ struct FloatSuffix {
       return name + 'f';
     } else if (t == Float(64)) {
       return name;
+    } else if (t == Float(16)) {
+      return name;
     } else {
       return "";
     }
