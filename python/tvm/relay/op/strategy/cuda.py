@@ -139,7 +139,7 @@ def conv2d_strategy_cuda(attrs, inputs, out_type, target):
                     wrap_compute_conv2d(topi.cuda.conv2d_cudnn, True),
                     wrap_topi_schedule(topi.cuda.schedule_conv2d_cudnn),
                     name="conv2d_cudnn.cuda",
-                    plevel=5)
+                    plevel=20)
     elif is_depthwise_conv2d(data.shape, layout, kernel.shape, kernel_layout, groups):
         if layout == "NCHW":
             assert kernel_layout == "OIHW"
