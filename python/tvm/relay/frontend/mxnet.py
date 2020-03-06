@@ -644,6 +644,42 @@ def _mx_arange(inputs, attrs):
     return _op.arange(**new_attrs)
 
 
+def _mx_contrib_arange_like(inputs, attrs):
+    assert len(inputs) == 1
+    if attrs.get_int("repeat", 1) != 1:
+        raise tvm.error.OpAttributeUnimplemented(
+            'Attribute "repeat" is not supported in operator arange_like.')
+    ty = _infer_type(inputs[0]).checked_type
+    assert ty
+    shape, dtype = get_const_tuple(ty.shape), ty.dtype
+    axis = attrs.get_int("axis", None)
+    if axis is None:
+        n_elems = 1
+        for dim in shape:
+            if not isinstance(dim, int):
+                raise tvm.error.OpError("Don't support arange_like with symbolic input shape.")
+            n_elems *= dim
+    else:
+        axis = axis + len(shape) if axis < 0 else axis
+        assert 0 <= axis < len(shape)
+        n_elems = shape[axis]
+        if not isinstance(n_elems, int):
+            raise tvm.error.OpError("Don't support arange_like with symbolic input shape.")
+        shape = (n_elems,)
+    start = attrs.get_float("start", 0.)
+    step = attrs.get_float("step", 1.)
+    stop = start + step * n_elems
+    new_attrs = {}
+    new_attrs["start"] = _expr.const(start, dtype=dtype)
+    new_attrs["stop"] = _expr.const(stop, dtype=dtype)
+    new_attrs["step"] = _expr.const(step, dtype=dtype)
+    new_attrs["dtype"] = dtype
+    ret = _op.arange(**new_attrs)
+    if len(shape) > 1:
+        ret = _op.reshape(ret, shape)
+    return ret
+
+
 # pylint: disable=unused-argument
 def _mx_make_loss(inputs, attrs):
     # while doing inference make_loss does not have any effect
@@ -1831,6 +1867,7 @@ _convert_map = {
     "smooth_l1"     : _mx_smooth_l1,
     "make_loss"     : _mx_make_loss,
     "_contrib_div_sqrt_dim": _mx_contrib_div_sqrt_dim,
+    "_contrib_arange_like": _mx_contrib_arange_like,
     "one_hot"           : _mx_one_hot,
     # vision
     "_contrib_BilinearResize2D" : _mx_resize,
