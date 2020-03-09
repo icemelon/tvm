@@ -184,9 +184,9 @@ def dense_pack(cfg, data, weight, bias=None, out_dtype=None):
     M, K = get_const_tuple(data.shape) # batch, in_dim
     N, _ = get_const_tuple(weight.shape) # out_dim
     # create tuning space
-    cfg.define_split("tile_y", M, num_outputs=3)
-    cfg.define_split("tile_x", N, num_outputs=3)
-    cfg.define_split("tile_k", K, num_outputs=2)
+    cfg.define_split("tile_y", 32 if isinstance(M, tvm.tir.Var) else M, num_outputs=3)
+    cfg.define_split("tile_x", 32 if isinstance(N, tvm.tir.Var) else N, num_outputs=3)
+    cfg.define_split("tile_k", 32 if isinstance(K, tvm.tir.Var) else K, num_outputs=2)
     if cfg.is_fallback:
         _default_dense_pack_config(cfg, M, N, K)
 

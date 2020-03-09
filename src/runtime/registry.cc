@@ -89,7 +89,9 @@ const PackedFunc* Registry::Get(const std::string& name) {
   Manager* m = Manager::Global();
   std::lock_guard<std::mutex> lock(m->mutex);
   auto it = m->fmap.find(name);
-  if (it == m->fmap.end()) return nullptr;
+  if (it == m->fmap.end()) {
+    return nullptr;
+  }
   return &(it->second->func_);
 }
 

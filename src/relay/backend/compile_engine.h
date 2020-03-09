@@ -27,6 +27,7 @@
 
 #include <tvm/node/structural_equal.h>
 #include <tvm/node/structural_hash.h>
+#include <tvm/te/schedule.h>
 #include <tvm/runtime/module.h>
 #include <tvm/relay/analysis.h>
 #include <tvm/relay/expr.h>
@@ -47,14 +48,26 @@ enum ShapeFuncParamState {
 };
 
 struct LoweredOutputNode : public Object {
-  /*! \brief The outputs to the function */
-  tvm::Array<te::Tensor> outputs;
+  /*! \brief The output tensors to the function */
+  Array<te::Tensor> tensors;
+  /*! \brief The master op in the function */
+  Op master_op;
+  /*! \brief The master op attribute */
+  Attrs master_attrs;
+  /*! \brief The master op pattern */
+  int master_op_pattern{0};
   /*! \brief The implementation used to compute the output */
-  OpImplementation implementation;
+  OpImplementation master_implementation;
+  /*! \brief The specialized condition for this implementation */
+  te::SpecializedCondition specialized_condition;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
-    v->Visit("outputs", &outputs);
-    v->Visit("implementation", &implementation);
+    v->Visit("tensors", &tensors);
+    v->Visit("master_op", &master_op);
+    v->Visit("master_attrs", &master_attrs);
+    v->Visit("master_op_pattern", &master_op_pattern);
+    v->Visit("master_implementation", &master_implementation);
+    v->Visit("specialized_condition", &specialized_condition);
   }
 
   static constexpr const char* _type_key = "relay.LoweredOutput";
@@ -63,36 +76,55 @@ struct LoweredOutputNode : public Object {
 
 class LoweredOutput : public ObjectRef {
  public:
-  TVM_DLL LoweredOutput(tvm::Array<te::Tensor> outputs, OpImplementation impl);
+  TVM_DLL LoweredOutput(Array<te::Tensor> outputs,
+                        Op op,
+                        Attrs attrs,
+                        int op_pattern,
+                        OpImplementation impl,
+                        te::SpecializedCondition condition);
+  /*!
+   * \brief Union the master implementation from another LoweredOutput.
+   * \param other The LoweredOutput to be unioned from
+   */
+  void UnionMaster(const LoweredOutput& other);
 
-  TVM_DEFINE_OBJECT_REF_METHODS(LoweredOutput, ObjectRef, LoweredOutputNode);
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(LoweredOutput, ObjectRef, LoweredOutputNode);
 };
 
 /*! \brief Node container to represent a cached function. */
 struct CachedFuncNode : public Object {
-  /* \brief compiled target */
+  /*! \brief compiled target */
   tvm::Target target;
+  /*! \brief Function base name that is not guaranteed to be unique */
+  std::string base_func_name;
   /*! \brief Function name */
   std::string func_name;
-  /* \brief The inputs to the function */
-  tvm::Array<te::Tensor> inputs;
-  /* \brief The outputs to the function */
-  tvm::Array<te::Tensor> outputs;
+  /*! \brief The inputs to the function */
+  Array<te::Tensor> inputs;
+  /*! \brief The outputs to the function */
+  Array<Array<te::Tensor>> outputs;
   /*! \brief The schedule to the function */
-  te::Schedule schedule;
+  Array<te::Schedule> schedules;
+  /*! \brief Specialized conditions assoiciated with lowered functions */
+  Array<te::SpecializedCondition> specialized_conditions;
   /*! \brief The lowered functions to support the function. */
   IRModule funcs = IRModule::Empty();
-
+  /*! \brief The dispatch function that calls packed functions
+   *     based on specialized conditions at runtime. */
+  IRModule dispatch_func = IRModule::Empty();
   /*! \brief Parameter usage states in the shape function. */
   tvm::Array<Integer> shape_func_param_states;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("target", &target);
+    v->Visit("base_func_name", &base_func_name);
     v->Visit("func_name", &func_name);
     v->Visit("inputs", &inputs);
     v->Visit("outputs", &outputs);
-    v->Visit("schedule", &schedule);
+    v->Visit("schedule", &schedules);
+    v->Visit("specialized_conditions", &specialized_conditions);
     v->Visit("funcs", &funcs);
+    v->Visit("dispatch_func", &dispatch_func);
     v->Visit("shape_func_param_states", &shape_func_param_states);
   }
 

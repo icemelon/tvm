@@ -36,9 +36,10 @@ logger = logging.getLogger('compile_engine')
 @tvm._ffi.register_object("relay.LoweredOutput")
 class LoweredOutput(Object):
     """Lowered output"""
-    def __init__(self, outputs, implement):
+    def __init__(self, outputs, op, attrs, implement, condition):
+        pattern = op.get_attr("TOpPattern")
         self.__init_handle_by_constructor__(
-            _backend._make_LoweredOutput, outputs, implement)
+            _backend._make_LoweredOutput, outputs, op, attrs, pattern, implement, condition)
 
 
 @tvm._ffi.register_object("relay.CCacheKey")
@@ -62,6 +63,11 @@ class CCacheKey(Object):
 class CCacheValue(Object):
     """Value in the CompileEngine, including usage statistics.
     """
+
+
+@tvm._ffi.register_object("relay.CachedFunc")
+class CachedFunc(Object):
+    """Cached fucntion."""
 
 
 def _get_cache_key(source_func, target):
@@ -212,6 +218,67 @@ def select_implementation(op, attrs, inputs, out_type, target, use_autotvm=True)
     return best_plevel_impl, outputs[best_plevel_impl]
 
 
+def lower_symbolic_op(op, attrs, inputs, out_type, target):
+    """Get all valid implementations from the op strategy.
+
+    Note that this function doesn't support op with symbolic input shapes.
+
+    Parameters
+    ----------
+    op : relay.op.Op
+        Relay operator.
+
+    attrs : object
+        The op attribute.
+
+    inputs : List[tvm.te.Tensor]
+        Input tensors to the op.
+
+    out_type : relay.Type
+        The output type.
+
+    target : tvm.target.Target
+        The target to compile the op.
+
+    Returns
+    -------
+    ret : List[relay.op.OpImplementation]
+        The list of all valid op implementations.
+    """
+    fstrategy = op.get_attr("FTVMStrategy")
+    assert fstrategy is not None, "%s doesn't have FTVMStrategy registered" % op.name
+    with target:
+        strategy = fstrategy(attrs, inputs, out_type, target)
+    analyzer = tvm.arith.Analyzer()
+    impls = []
+    for spec in strategy.specializations:
+        valid = True
+        if spec.condition:
+            # check if any clause is false
+            for clause in spec.condition.clauses:
+                clause = analyzer.canonical_simplify(clause)
+                if isinstance(clause, tvm.tir.IntImm) and not clause.value:
+                    valid = False
+                    break
+        if valid:
+            best_impl = None
+            for impl in spec.implementations:
+                if best_impl is None or impl.plevel > best_impl.plevel:
+                    best_impl = impl
+            impls.append((spec.condition, best_impl))
+
+    ret = []
+    for cond, impl in impls:
+        if cond is not None:
+            with cond:
+                outs = impl.compute(attrs, inputs, out_type)
+        else:
+            outs = impl.compute(attrs, inputs, out_type)
+        lowered_out = LoweredOutput(outs, op, attrs, impl, cond)
+        ret.append(lowered_out)
+    return ret
+
+
 @tvm._ffi.register_func("relay.backend.lower_call")
 def lower_call(call, inputs, target):
     """Lower the call expression to op implementation and tensor outputs."""
@@ -249,16 +316,14 @@ def lower_call(call, inputs, target):
         best_impl, outputs = select_implementation(
             op, call.attrs, inputs, ret_type, target)
         logger.info("Use implementation %s for op %s", best_impl.name, op.name)
+        ret = [LoweredOutput(outputs, op, call.attrs, best_impl, None)]
     else:
-        # TODO(@icemelon9): Allow tvm to generate multiple kernels for dynamic shapes.
-        #   Currently, we just use the implementation with highest plevel
-        best_impl, outputs = select_implementation(
-            op, call.attrs, inputs, ret_type, target, use_autotvm=False)
+        ret = lower_symbolic_op(op, call.attrs, inputs, ret_type, target)
 
     # re-enable AutoTVM tracing
     if reenable_tracing:
         env.tracing = True
-    return LoweredOutput(outputs, best_impl)
+    return ret
 
 
 @tvm._ffi.register_object("relay.CompileEngine")

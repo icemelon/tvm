@@ -25,7 +25,16 @@
 
 #include <topi/tags.h>
 #include <tvm/driver/driver_api.h>
+#include <tvm/ir/expr.h>
 #include <tvm/ir/type_functor.h>
+#include <tvm/tir/expr.h>
+#include <tvm/tir/stmt.h>
+#include <tvm/tir/op.h>
+#include <tvm/tir/analysis.h>
+#include <tvm/te/schedule.h>
+#include <tvm/te/operation.h>
+#include <tvm/te/schedule_pass.h>
+#include <tvm/runtime/registry.h>
 #include <tvm/relay/analysis.h>
 #include <tvm/relay/attrs/device_copy.h>
 #include <tvm/relay/expr.h>
@@ -46,6 +55,7 @@
 #include <vector>
 
 #include "utils.h"
+#include "../../tir/transforms/ir_util.h"
 
 namespace tvm {
 namespace relay {
@@ -56,11 +66,39 @@ TVM_REGISTER_NODE_TYPE(CCacheKeyNode);
 TVM_REGISTER_NODE_TYPE(CCacheValueNode);
 TVM_REGISTER_OBJECT_TYPE(CompileEngineNode);
 
-LoweredOutput::LoweredOutput(tvm::Array<te::Tensor> outputs, OpImplementation impl) {
+LoweredOutput::LoweredOutput(Array<te::Tensor> outputs,
+                             Op op,
+                             Attrs attrs,
+                             int op_pattern,
+                             OpImplementation impl,
+                             te::SpecializedCondition condition) {
   auto n = make_object<LoweredOutputNode>();
-  n->outputs = std::move(outputs);
-  n->implementation = std::move(impl);
+  n->tensors = std::move(outputs);
+  n->master_op = std::move(op);
+  n->master_attrs = std::move(attrs);
+  n->master_op_pattern = op_pattern;
+  n->master_implementation = std::move(impl);
+  n->specialized_condition = std::move(condition);
   data_ = std::move(n);
+}
+
+void LoweredOutput::UnionMaster(const LoweredOutput& other) {
+  LoweredOutputNode* self = this->operator->();
+  if (self->master_op_pattern >= kCommReduce) {
+    CHECK(other->master_op_pattern < kCommReduce)
+      << "Two complicated op in a primitive function "
+      << " self=" << self->master_op << " other=" << other->master_op;
+  }
+  if (other->master_op_pattern > self->master_op_pattern) {
+    CHECK(!self->specialized_condition.defined())
+      << "Non-master op has a specialized implementation "
+      << " op=" << self->master_op << " impl=" << self->master_implementation->name;
+    self->master_op = other->master_op;
+    self->master_attrs = other->master_attrs;
+    self->master_op_pattern = other->master_op_pattern;
+    self->master_implementation = other->master_implementation;
+    self->specialized_condition = other->specialized_condition;
+  }
 }
 
 CCacheKey::CCacheKey(Function source_func, Target target) {
@@ -74,7 +112,7 @@ struct IsDynamicVisitor : public TypeVisitor {
   bool is_dyn{false};
   void VisitType_(const TensorTypeNode* tt) {
     for (auto dim : tt->shape) {
-      if (dim.as<Any>()) {
+      if (dim.as<Any>() || dim.as<te::VarNode>()) {
         is_dyn = true;
         break;
       }
@@ -113,7 +151,7 @@ Array<IndexExpr> GetShape(const Array<IndexExpr>& shape) {
 
 // The getter to get schedule from compile engine.
 // Get schedule from functor.
-class ScheduleGetter : public backend::MemoizedExprTranslator<Array<te::Tensor>> {
+class ScheduleGetter : public backend::MemoizedExprTranslator<Array<LoweredOutput>> {
  public:
   explicit ScheduleGetter(Target target)
       : target_(target), device_copy_op_(Op::Get("device_copy")) {}
@@ -141,10 +179,13 @@ class ScheduleGetter : public backend::MemoizedExprTranslator<Array<te::Tensor>>
           inputs.push_back(tensor);
         }
       }
-      memo_[param] = inputs;
+      auto n = make_object<LoweredOutputNode>();
+      n->tensors = std::move(inputs);
+      memo_[param] = {LoweredOutput(n)};
     }
     readable_name_stream_ << "fused";
-    cache_node->outputs = this->VisitExpr(prim_func->body);
+    Array<LoweredOutput> lowered_outs = this->VisitExpr(prim_func->body);
+
     auto candidate_name = readable_name_stream_.str();
     constexpr static size_t kMaxFuncNameLength = 80;
     if (candidate_name.size() > kMaxFuncNameLength) {
@@ -153,39 +194,44 @@ class ScheduleGetter : public backend::MemoizedExprTranslator<Array<te::Tensor>>
       truncated_name << "_" << std::hash<std::string>{}(candidate_name) << "_";
       candidate_name = truncated_name.str();
     }
-    cache_node->func_name = candidate_name;
+    cache_node->base_func_name = candidate_name;
 
-    CHECK(master_op_.defined());
-    // Fusion over tupled results may leave identity relationships
-    // between inputs and outputs, and those should not be scheduled.
-    // Hence schedule only non PlaceholderOp outputs.
-    tvm::Array<te::Tensor> tensor_outs;
-    for (const auto& tensor : cache_node->outputs) {
-      if (!tensor->op.as<te::PlaceholderOpNode>()) {
-        tensor_outs.push_back(tensor);
-      }
-    }
-    te::Schedule schedule;
-    // No need to register schedule for device copy op.
-    if (master_attrs_.as<DeviceCopyAttrs>() == nullptr) {
-      CHECK(master_implementation_.defined());
-      schedule = master_implementation_.Schedule(master_attrs_, tensor_outs, target_);
-      for (const auto& scalar : scalars_) {
-        if (schedule->Contain(scalar)) {
-          schedule[scalar].compute_inline();
+    for (auto& lowered_out : lowered_outs) {
+      CHECK(lowered_out->master_op.defined());
+      cache_node->outputs.push_back(lowered_out->tensors);
+      cache_node->specialized_conditions.push_back(lowered_out->specialized_condition);
+      // Fusion over tupled results may leave identity relationships
+      // between inputs and outputs, and those should not be scheduled.
+      // Hence schedule only non PlaceholderOp outputs.
+      tvm::Array<te::Tensor> tensor_outs;
+      for (const auto& tensor : lowered_out->tensors) {
+        if (!tensor->op.as<te::PlaceholderOpNode>()) {
+          tensor_outs.push_back(tensor);
         }
       }
+      te::Schedule schedule;
+      // No need to register schedule for device copy op.
+      if (lowered_out->master_attrs.as<DeviceCopyAttrs>() == nullptr) {
+        CHECK(lowered_out->master_implementation.defined());
+        schedule = lowered_out->master_implementation.Schedule(
+            lowered_out->master_attrs, tensor_outs, target_);
+        for (const auto& scalar : scalars_) {
+          if (schedule->Contain(scalar)) {
+            schedule[scalar].compute_inline();
+          }
+        }
+      }
+      cache_node->schedules.push_back(std::move(schedule));
     }
-    cache_node->schedule = std::move(schedule);
     return CachedFunc(cache_node);
   }
 
-  Array<te::Tensor> VisitExpr_(const VarNode* op) final {
+  Array<LoweredOutput> VisitExpr_(const VarNode* op) final {
     LOG(FATAL) << "Free variable " << op->name_hint();
     return {};
   }
 
-  Array<te::Tensor> VisitExpr_(const ConstantNode* op) final {
+  Array<LoweredOutput> VisitExpr_(const ConstantNode* op) final {
     using tir::make_const;
     CHECK(op->is_scalar());
     void* data = op->data->data;
@@ -207,65 +253,68 @@ class ScheduleGetter : public backend::MemoizedExprTranslator<Array<te::Tensor>>
         }
     }, "compile_engine_const", topi::kBroadcast);
     scalars_.push_back(value->op);
-    return {value};
+    LoweredOutput out({value}, Op(), Attrs(), OpPatternKind::kElemWise,
+                      OpImplementation(), te::SpecializedCondition());
+    return {out};
   }
 
-  Array<te::Tensor> VisitExpr_(const CallNode* call_node) final {
-    static auto fpattern =
-        Op::GetAttr<TOpPattern>("TOpPattern");
+  Array<LoweredOutput> VisitExpr_(const CallNode* call_node) final {
     static auto flower_call = tvm::runtime::Registry::Get("relay.backend.lower_call");
     CHECK(flower_call) << "relay.backend.lower_call is not registered.";
 
-    Array<te::Tensor> inputs;
+    Array<Array<LoweredOutput>> lowered_inputs;
     int count_tuple = 0;
     for (Expr arg : call_node->args) {
       if (arg->checked_type().as<TupleTypeNode>()) {
         ++count_tuple;
       }
-      for (te::Tensor tensor : VisitExpr(arg)) {
-        inputs.push_back(tensor);
-      }
+      lowered_inputs.push_back(VisitExpr(arg));
     }
     if (count_tuple) {
       CHECK_EQ(call_node->args.size(), 1U)
         << "Only allow function with a single tuple input";
     }
+    Array<LoweredOutput> flatten_inputs = CombineTuple(lowered_inputs);
 
     CHECK(call_node->op.as<OpNode>())
       << "Primitive function only allows call into primitive ops";
     Op op = Downcast<Op>(call_node->op);
 
-    Array<te::Tensor> outputs;
-    OpImplementation impl;
+    Array<LoweredOutput> lowered_outputs;
     // Skip fcompute for device copy operators as it is not registered.
     if (op == device_copy_op_) {
-      const auto* copy_input = inputs[0].operator->();
-      outputs.push_back(te::TensorNode::make(copy_input->shape, copy_input->dtype,
-                                         te::Operation(), 0));
+      for (const auto& inputs : flatten_inputs) {
+        const auto& copy_input = inputs->tensors[0];
+        Array<te::Tensor> out_tensors;
+        out_tensors.push_back(te::TensorNode::make(
+            copy_input->shape, copy_input->dtype, te::Operation(), 0));
+        lowered_outputs.push_back(LoweredOutput(
+            {out_tensors}, op, call_node->attrs, OpPatternKind::kElemWise,
+            OpImplementation(), te::SpecializedCondition()));
+      }
+    } else if (flatten_inputs.size() == 1) {
+      LoweredOutput inputs = flatten_inputs[0];
+      Array<LoweredOutput> outs = (*flower_call)(GetRef<Call>(call_node),
+                                                 inputs->tensors,
+                                                 target_);
+      for (auto out : outs) {
+        out.UnionMaster(inputs);
+        lowered_outputs.push_back(out);
+      }
     } else {
-      LoweredOutput lowered_out = (*flower_call)(GetRef<Call>(call_node), inputs, target_);
-      outputs = lowered_out->outputs;
-      impl = lowered_out->implementation;
+      for (const auto& inputs : flatten_inputs) {
+        Array<LoweredOutput> outs = (*flower_call)(GetRef<Call>(call_node),
+                                                   inputs->tensors,
+                                                   target_);
+        CHECK_EQ(outs.size(), 1)
+            << "Two ops with multiple implementation in a primitive function "
+            << " current=" << op << " master=" << inputs->master_op;
+        LoweredOutput out = outs[0];
+        out.UnionMaster(inputs);
+        lowered_outputs.push_back(out);
+      }
     }
 
-    int op_pattern = fpattern[op];
-    if (op_pattern >= kCommReduce) {
-      CHECK(!master_op_.defined() || master_op_pattern_ < kCommReduce)
-        << "Two complicated op in a primitive function "
-        << " master=" << master_op_ << " current=" << op;
-    }
-    if (op_pattern >= master_op_pattern_) {
-      master_op_ = op;
-      master_attrs_ = call_node->attrs;
-      master_op_pattern_ = op_pattern;
-      master_implementation_ = impl;
-    }
-    if (outputs.size() != 1) {
-      const auto* tuple_type =
-          call_node->checked_type().as<TupleTypeNode>();
-      CHECK(tuple_type) << "Expect output to be a tuple type";
-      CHECK_EQ(tuple_type->fields.size(), outputs.size());
-    }
     // Set the name to `__copy`. It will be detected in graph runtime to perform
     // data copy across devices.
     if (op == device_copy_op_) {
@@ -274,48 +323,89 @@ class ScheduleGetter : public backend::MemoizedExprTranslator<Array<te::Tensor>>
     } else {
       readable_name_stream_ << '_' << op->name;
     }
-    return outputs;
+    return lowered_outputs;
   }
 
-  Array<te::Tensor> VisitExpr_(const FunctionNode* op) final {
+  Array<LoweredOutput> VisitExpr_(const FunctionNode* op) final {
     LOG(FATAL) << "Do not support sub function";
-    return Array<te::Tensor>();
+    return {};
   }
 
-  Array<te::Tensor> VisitExpr_(const LetNode* op) final {
-    Array<te::Tensor> val = VisitExpr(op->value);
+  Array<LoweredOutput> VisitExpr_(const LetNode* op) final {
+    Array<LoweredOutput> val = VisitExpr(op->value);
     CHECK(!memo_.count(op->var));
     memo_[op->var] = val;
     return VisitExpr(op->body);
   }
 
-  Array<te::Tensor> VisitExpr_(const TupleNode* op) final {
-    Array<te::Tensor> fields;
+  Array<LoweredOutput> VisitExpr_(const TupleNode* op) final {
+    Array<Array<LoweredOutput>> fields;
     for (Expr field : op->fields) {
       CHECK(field->checked_type().as<TensorTypeNode>())
           << "Only allow Tuple of Tensor";
-      Array<te::Tensor> res = VisitExpr(field);
-      CHECK_EQ(res.size(), 1);
-      fields.push_back(res[0]);
+      fields.push_back(VisitExpr(field));
     }
-    return fields;
+    return CombineTuple(fields);
   }
 
-  Array<te::Tensor> VisitExpr_(const TupleGetItemNode* op) final {
+  Array<LoweredOutput> VisitExpr_(const TupleGetItemNode* op) final {
     const auto* tuple_type = op->tuple->type_as<TupleTypeNode>();
-    Array<te::Tensor> tuple = VisitExpr(op->tuple);
-    CHECK_EQ(tuple_type->fields.size(), tuple.size());
-    CHECK_GE(op->index, 0);
-    CHECK_LT(static_cast<size_t>(op->index), tuple.size());
-    return {tuple[op->index]};
+    Array<LoweredOutput> ret;
+    for (const auto& tuple : VisitExpr(op->tuple)) {
+      CHECK_EQ(tuple_type->fields.size(), tuple->tensors.size());
+      CHECK_GE(op->index, 0);
+      CHECK_LT(static_cast<size_t>(op->index), tuple->tensors.size());
+      ret.push_back(LoweredOutput({tuple->tensors[op->index]},
+                                  tuple->master_op,
+                                  tuple->master_attrs,
+                                  tuple->master_op_pattern,
+                                  tuple->master_implementation,
+                                  tuple->specialized_condition));
+    }
+    return ret;
   }
 
  private:
+  Array<LoweredOutput> CombineTuple(const Array<Array<LoweredOutput>>& fields) {
+    size_t num_outs = 1;
+    // Count the number of LoweredOutput for the tuple
+    for (const auto& f : fields) {
+      if (f.size() > 1) {
+        CHECK_EQ(num_outs, 1) << "Currently do not support more than one op "
+                                 << "with multiple implementations";
+        num_outs = f.size();
+      }
+    }
+    std::vector<LoweredOutput> tuples;
+    for (size_t i = 0; i < num_outs; ++i) {
+      auto n = make_object<LoweredOutputNode>();
+      tuples.push_back(LoweredOutput(n));
+    }
+    for (const auto& item : fields) {
+      if (item.size() == 1) {
+        // If the field only has one LoweredOutput, just append the output
+        // tensors of the field to every LoweredOutput of the tuple
+        const LoweredOutput& field = item[0];
+        CHECK(!field->specialized_condition.defined());
+        for (LoweredOutput& tup : tuples) {
+          tup->tensors.extend(field->tensors);
+          tup.UnionMaster(field);
+        }
+      } else {
+        // If the field has more than one LoweredOutput, append the output
+        // tenors to each corresponding LoweredOutput of the tuple
+        for (size_t i = 0; i < num_outs; ++i) {
+          const LoweredOutput& field = item[i];
+          LoweredOutput& tup = tuples[i];
+          tup->tensors.extend(field->tensors);
+          tup.UnionMaster(field);
+        }
+      }
+    }
+    return tuples;
+  }
+
   tvm::Target target_;
-  Op master_op_;
-  Attrs master_attrs_;
-  int master_op_pattern_{0};
-  OpImplementation master_implementation_;
   std::ostringstream readable_name_stream_;
   Array<te::Operation> scalars_;
   // Cache device copy op for equivalence checking to reduce registry lookup
@@ -367,7 +457,8 @@ class MakeShapeFunc : public backend::MemoizedExprTranslator<Array<te::Tensor>> 
     }
     readable_name_stream_ << "shape_func";
     auto cache_node = make_object<CachedFuncNode>();
-    cache_node->outputs = VisitExpr(prim_func->body);
+    auto output_tensors = VisitExpr(prim_func->body);
+    cache_node->outputs.push_back(output_tensors);
     auto candidate_name = readable_name_stream_.str();
     constexpr static size_t kMaxFuncNameLength = 80;
     if (candidate_name.size() > kMaxFuncNameLength) {
@@ -397,7 +488,7 @@ class MakeShapeFunc : public backend::MemoizedExprTranslator<Array<te::Tensor>> 
     CachedFunc cfunc(cache_node);
     // generate schedule for shape func
     Array<te::Operation> out_ops;
-    for (auto t : cache_node->outputs) {
+    for (auto t : output_tensors) {
       out_ops.push_back(t->op);
     }
     auto schedule = te::create_schedule(out_ops);
@@ -702,25 +793,158 @@ class CompileEngineImpl : public CompileEngineNode {
       }
     }
 
-    cache_node->func_name = GetUniqueName(cache_node->func_name);
-    // NOTE: array will copy on write.
-    Array<te::Tensor> all_args = cache_node->inputs;
-    for (te::Tensor arg : cache_node->outputs) {
-      all_args.push_back(arg);
+    std::vector<std::string> func_names;
+    for (size_t i = 0; i < cache_node->schedules.size(); ++i) {
+      std::string func_name = GetUniqueName(cache_node->base_func_name);
+      func_names.push_back(func_name);
+      // NOTE: array will copy on write.
+      Array<te::Tensor> all_args = cache_node->inputs;
+      all_args.extend(cache_node->outputs[i]);
+      IRModule func;
+      // lower the function
+      if (const auto* f = runtime::Registry::Get("relay.backend.lower")) {
+        func = (*f)(
+            cfunc->schedules[i], all_args, func_name, key->source_func);
+      } else {
+        tvm::BuildConfig bcfg = BuildConfig::Create();
+        std::unordered_map<te::Tensor, tir::Buffer> binds;
+        func = tvm::lower(cfunc->schedules[i], all_args, func_name, binds, bcfg);
+      }
+      cache_node->funcs->Update(func);
     }
-    // lower the function
-    if (const auto* f = runtime::Registry::Get("relay.backend.lower")) {
-      cache_node->funcs = (*f)(
-          cfunc->schedule, all_args, cache_node->func_name, key->source_func);
+
+    if (func_names.size() == 1) {
+      cache_node->func_name = func_names[0];
     } else {
-      tvm::BuildConfig bcfg = BuildConfig::Create();
-      std::unordered_map<te::Tensor, tir::Buffer> binds;
-      cache_node->funcs = tvm::lower(cfunc->schedule, all_args, cache_node->func_name,
-                                     binds, bcfg);
+      // multiple kernels for this function
+      cache_node->func_name = GetUniqueName(cache_node->base_func_name + "_dispatch");
+      cache_node->dispatch_func = MakeDispatchFunction(
+          cache_node, func_names, cache_node->func_name);
     }
+
     value->cached_func = CachedFunc(cache_node);
     return value;
   }
+
+  IRModule MakeDispatchFunction(const ObjectPtr<CachedFuncNode>& cfunc,
+                                const std::vector<std::string>& func_names,
+                                const std::string& dispatch_func_name) {
+    // get the mapping from kernel idx to its specialized condition
+    int default_kernel_idx = -1;
+    std::vector<std::pair<PrimExpr, int>> specialized_kernels;
+    for (size_t i = 0; i < cfunc->schedules.size(); ++i) {
+      auto sp_cond = cfunc->specialized_conditions[i];
+      if (!sp_cond.defined()) {
+        default_kernel_idx = i;
+      } else {
+        PrimExpr cond;
+        for (auto clause : sp_cond->clauses) {
+          if (cond.defined()) {
+            cond = tir::AndNode::make(cond, clause);
+          } else {
+            cond = clause;
+          }
+        }
+        specialized_kernels.emplace_back(cond, i);
+      }
+    }
+    CHECK_GE(default_kernel_idx, 0) << "Default implementation must be registered to OpStrategy";
+
+    Array<te::Tensor> tensors = cfunc->inputs;
+    Array<tir::Var> args;
+    std::vector<tir::Stmt> seq_init;
+    std::unordered_map<const tir::VarNode*, PrimExpr> def_map;
+    const tir::Stmt nop = tir::EvaluateNode::make(0);
+
+    // Add outputs to tensors
+    for (size_t i = 0; i < cfunc->outputs[0].size(); ++i) {
+      auto t = cfunc->outputs[0][i];
+      std::ostringstream os;
+      os << "output" << i;
+      tensors.push_back(te::placeholder(t->shape, t->dtype, os.str()));
+    }
+    // Create API args and prepare the init stmts
+    for (size_t i = 0; i < tensors.size(); ++i) {
+      const te::Tensor& tensor = tensors[i];
+      // create api arg
+      std::ostringstream os;
+      os << "arg" << i;
+      auto v_arg = tir::Var(os.str(), DataType::Handle());
+      args.push_back(v_arg);
+      // check if we need to bind symbolic var
+      bool need_bind = false;
+      for (auto dim : tensor->shape) {
+        if (const tir::VarNode* v = dim.as<tir::VarNode>()) {
+          if (def_map.find(v) == def_map.end()) {
+            need_bind = true;
+            break;
+          }
+        }
+      }
+      if (!need_bind) continue;
+      // bind buffer shape
+      tir::Var v_shape(v_arg->name_hint + ".shape", DataType::Handle());
+      seq_init.emplace_back(tir::LetStmtNode::make(
+          v_shape, tir::TVMStructGet(
+              DataType::Handle(), v_arg, 0, tir::intrinsic::kArrShape),
+          nop));
+      // bind shape var
+      for (size_t k = 0; k < tensor->shape.size(); ++k) {
+        auto dim = tensor->shape[k];
+        if (const tir::VarNode* v = dim.as<tir::VarNode>()) {
+          if (def_map.find(v) == def_map.end()) {
+            tir::Var v_dim = Downcast<tir::Var>(dim);
+            seq_init.emplace_back(tir::LetStmtNode::make(
+                v_dim, cast(dim.dtype(), tir::LoadNode::make(
+                    DataType::ShapeIndex(), v_shape,
+                    IntImm(DataType::Int(32), k), tir::const_true(1))),
+                nop));
+            def_map[v] = dim;
+          }
+        }
+      }
+    }
+
+    auto fcall_kernel = [&](int func_idx) {
+      Array<PrimExpr> call_args;
+      call_args.push_back(tir::StringImmNode::make(func_names[func_idx]));
+      for (auto arg : args) {
+        call_args.push_back(arg);
+      }
+      return tir::EvaluateNode::make(tir::CallNode::make(
+          DataType::Int(32), tir::intrinsic::tvm_call_packed,
+          call_args, tir::CallNode::Intrinsic));
+    };
+
+    // invoke default kernel
+    tir::Stmt body = fcall_kernel(default_kernel_idx);
+    // inovke specialized kernels with its condition
+    for (auto iter : specialized_kernels) {
+      tir::Stmt then = fcall_kernel(iter.second);
+      body = tir::IfThenElseNode::make(iter.first, then, body);
+    }
+
+    for (auto ri = seq_init.rbegin(); ri != seq_init.rend(); ++ri) {
+      const auto* let = (*ri).as<tir::LetStmtNode>();
+      CHECK(let);
+      auto n = make_object<tir::LetStmtNode>(*let);
+      n->body = body;
+      body = tir::Stmt(n);
+    }
+
+    // Create primitive function
+    ObjectPtr<tir::PrimFuncNode> n = make_object<tir::PrimFuncNode>();
+    n->body = body;
+    n->params = args;
+    n->ret_type = Downcast<tir::PrimFunc>((*cfunc->funcs->functions.begin()).second)->ret_type;
+    n->checked_type_ = n->func_type_annotation();
+    tir::PrimFunc f(n);
+    f = WithAttr(std::move(f), "global_symbol", runtime::String(dispatch_func_name));
+
+    IRModule mod(Map<GlobalVar, BaseFunc>({{GlobalVar(dispatch_func_name), f}}));
+    return mod;
+  }
+
   // implement lowered shape func
   CCacheValue LowerShapeFuncInternal(const CCacheKey& key) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -746,10 +970,10 @@ class CompileEngineImpl : public CompileEngineNode {
     cache_node->target = key->target;
 
     Array<te::Tensor> all_args = cache_node->inputs;
-    for (te::Tensor arg : cache_node->outputs) {
+    for (te::Tensor arg : cache_node->outputs[0]) {
       all_args.push_back(arg);
     }
-    tvm::BuildConfig bcfg = BuildConfig::Create();
+    tvm::BuildConfig bcfg = BuildConfig::Current();
     std::unordered_map<te::Tensor, tir::Buffer> binds;
     cache_node->funcs = tvm::lower(spair.first, all_args, cache_node->func_name, binds, bcfg);
     value->cached_func = CachedFunc(cache_node);
@@ -798,8 +1022,13 @@ const CompileEngine& CompileEngine::Global() {
 }
 
 TVM_REGISTER_GLOBAL("relay.backend._make_LoweredOutput")
-.set_body_typed([](tvm::Array<te::Tensor> outputs, OpImplementation impl) {
-  return LoweredOutput(outputs, impl);
+.set_body_typed([](Array<te::Tensor> outputs,
+                   Op op,
+                   Attrs attrs,
+                   int op_pattern,
+                   OpImplementation impl,
+                   te::SpecializedCondition condition) {
+  return LoweredOutput(outputs, op, attrs, op_pattern, impl, condition);
 });
 
 TVM_REGISTER_GLOBAL("relay.backend._make_CCacheKey")

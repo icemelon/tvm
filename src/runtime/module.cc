@@ -108,9 +108,12 @@ const PackedFunc* ModuleNode::GetFuncFromEnv(const std::string& name) {
   auto it = import_cache_.find(name);
   if (it != import_cache_.end()) return it->second.get();
   PackedFunc pf;
-  for (Module& m : this->imports_) {
-    pf = m.GetFunction(name, true);
-    if (pf != nullptr) break;
+  pf = this->GetFunction(name, true);
+  if (pf == nullptr) {
+    for (Module& m : this->imports_) {
+      pf = m.GetFunction(name, true);
+      if (pf != nullptr) break;
+    }
   }
   if (pf == nullptr) {
     const PackedFunc* f = Registry::Get(name);

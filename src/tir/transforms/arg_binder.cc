@@ -220,7 +220,7 @@ void ArgBinder::BindDLTensor(const Buffer& buffer,
     Bind_(buffer->shape[k],
           cast(buffer->shape[k].dtype(),
                LoadNode::make(tvm_shape_type, v_shape,
-                          IntImm(DataType::Int(32), k), const_true(1))),
+                              IntImm(DataType::Int(32), k), const_true(1))),
           field_name.str(), true);
   }
   // strides field

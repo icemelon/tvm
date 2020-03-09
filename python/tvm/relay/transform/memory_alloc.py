@@ -154,7 +154,7 @@ class ManifestAllocPass(ExprMutator):
                 raise Exception("unsupported shape function input state")
 
         out_shapes = []
-        for i, out in enumerate(cfunc.outputs):
+        for i, out in enumerate(cfunc.outputs[0]):
             tt = ty.TensorType(out.shape, out.dtype)
             alloc = self.make_static_allocation(scope, tt, i)
             alloc = scope.let("shape_func_out_{0}".format(i), alloc)

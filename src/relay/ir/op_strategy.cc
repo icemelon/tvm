@@ -76,6 +76,12 @@ void OpStrategy::AddImplementation(FTVMCompute fcompute,
   self->specializations.push_back(op_spec);
 }
 
+TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
+.set_dispatch<OpImplementationNode>([](const ObjectRef& node, ReprPrinter* p) {
+    auto* op = static_cast<const OpImplementationNode*>(node.get());
+    p->stream << "op_implementation(" << op->name << ")";
+});
+
 TVM_REGISTER_GLOBAL("relay.op._OpImplementationCompute")
 .set_body([](TVMArgs args, TVMRetValue* rv) {
     OpImplementation imp = args[0];
