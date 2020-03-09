@@ -48,7 +48,7 @@ def _schedule_conv2d_3(outs):
     return topi.generic.schedule_conv2d_nchw(outs)
 
 @tvm.target.override_native_generic_func("test_conv2d_strategy")
-def _tmp_strategy(attrs, inputs, out_type, target):
+def _test_conv2d_strategy(attrs, inputs, out_type, target):
     strategy = relay.op.OpStrategy()
     strategy.add_implementation(
         relay.op.strategy.wrap_compute_conv2d(_compute_conv2d_1),
@@ -68,6 +68,30 @@ def _tmp_strategy(attrs, inputs, out_type, target):
             name="conv2d_3",
             plevel=20)
     return strategy
+
+
+@tvm.target.override_native_generic_func("test_dense_strategy")
+def _test_dense_strategy(attrs, inputs, out_type, target):
+    def wrap_add_compute(compute):
+        def _compute(attrs, inputs, out_type):
+            return [compute(*inputs)]
+        return _compute
+
+    m = inputs[0].shape[0]
+    strategy = relay.op.OpStrategy()
+    strategy.add_implementation(
+        relay.op.strategy.wrap_compute_dense(topi.nn.dense),
+        relay.op.strategy.wrap_topi_schedule(topi.generic.schedule_dense),
+        name="dense_1",
+        plevel=10)
+    with tvm.te.SpecializedCondition(m > 10):
+        strategy.add_implementation(
+            wrap_add_compute(topi.add),
+            relay.op.strategy.wrap_topi_schedule(topi.generic.schedule_injective),
+            name="dense_2",
+            plevel=15)
+    return strategy
+
 
 def _create_record(task_name, dshape, wshape, target, cost):
     args = [te.placeholder(dshape), te.placeholder(wshape), (1, 1), (1, 1, 1, 1),
@@ -94,7 +118,7 @@ def test_get_valid_implementations():
             out.checked_type,
             target)
 
-    with TempOpAttr("nn.conv2d", "FTVMStrategy", _tmp_strategy):
+    with TempOpAttr("nn.conv2d", "FTVMStrategy", _test_conv2d_strategy):
         impls = _get_impls((1, 8, 7, 7), (32, 8, 3, 3))
         assert len(impls) == 2
         impls = _get_impls((1, 16, 7, 7), (32, 16, 3, 3))
@@ -116,7 +140,7 @@ def test_select_implementation():
             target,
             use_autotvm)
 
-    with TempOpAttr("nn.conv2d", "FTVMStrategy", _tmp_strategy):
+    with TempOpAttr("nn.conv2d", "FTVMStrategy", _test_conv2d_strategy):
         impl, _ = _select_impl((1, 8, 7, 7), (32, 8, 3, 3))
         assert impl.name == "conv2d_2"
         impl, _ = _select_impl((1, 8, 7, 7), (32, 8, 3, 3), True)
@@ -234,6 +258,39 @@ def test_compile_nhwc_pack():
     relay.build(mod, target="llvm")
 
 
+def test_compile_dispatch_func():
+    def get_mod(shape):
+        x = relay.var("x", shape=shape)
+        y = relay.var("y", shape=shape)
+        z = relay.nn.dense(x, y)
+        f = relay.Function([x, y], z)
+        mod = tvm.IRModule.from_expr(f)
+        mod = relay.transform.InferType()(mod)
+        return mod
+    engine = relay.backend.compile_engine.get()
+    with TempOpAttr("nn.dense", "FTVMStrategy", _test_dense_strategy):
+        k = tvm.te.var('k')
+        mod = get_mod((k, 30))
+        cfunc = engine.lower(mod["main"], "llvm")
+        assert len(cfunc.funcs.functions) == 2
+        assert len(cfunc.dispatch_func.functions) == 1
+
+        with relay.build_config(opt_level=3):
+            exec = relay.vm.compile(mod, target="llvm")
+        vm = tvm.relay.vm.vm_rt.VirtualMachine(exec)
+        vm.init(tvm.cpu())
+
+        x_np = np.random.uniform(size=(5, 30)).astype("float32")
+        y_np = np.random.uniform(size=(5, 30)).astype("float32")
+        out = vm.run(x_np, y_np)
+        tvm.testing.assert_allclose(out.asnumpy(), np.dot(x_np, y_np.T), rtol=1e-5)
+
+        x_np = np.random.uniform(size=(30, 30)).astype("float32")
+        y_np = np.random.uniform(size=(30, 30)).astype("float32")
+        out = vm.run(x_np, y_np)
+        tvm.testing.assert_allclose(out.asnumpy(), x_np + y_np, rtol=1e-5)
+
+
 if __name__ == "__main__":
     test_get_valid_implementations()
     test_select_implementation()
@@ -243,3 +300,4 @@ if __name__ == "__main__":
     test_compile_tuple_dup()
     test_compile_full()
     test_compile_nhwc_pack()
+    test_compile_dispatch_func()

@@ -136,7 +136,7 @@ class IterAdapter {
  *  Array implements copy on write semantics, which means array is mutable
  *  but copy will happen when array is referenced in more than two places.
  *
- * operator[] only provide const acces, use Set to mutate the content.
+ * operator[] only provide const access, use Set to mutate the content.
  * \tparam T The content NodeRef type.
  */
 template<typename T,
@@ -275,6 +275,16 @@ class Array : public ObjectRef {
     n->data.push_back(item);
   }
   /*!
+   * \brief push back all items in another list to the back of the list
+   * \param arr The list to be appended.
+   */
+  inline void extend(const Array<T>& arr) {
+    ArrayNode* n = this->CopyOnWrite();
+    for (const T& item : arr) {
+      n->data.push_back(item);
+    }
+  }
+  /*!
    * \brief Resize the array.
    * \param size The new size.
    */
@@ -376,7 +386,7 @@ class Array : public ObjectRef {
  *  Map implements copy on write semantics, which means map is mutable
  *  but copy will happen when array is referenced in more than two places.
  *
- * operator[] only provide const acces, use Set to mutate the content.
+ * operator[] only provide const access, use Set to mutate the content.
  * \tparam K The key NodeRef type.
  * \tparam V The value NodeRef type.
  */

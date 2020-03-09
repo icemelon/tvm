@@ -489,15 +489,20 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
       op_index = context_->cached_funcs.size();
       context_->cached_funcs.push_back(cfunc);
     } else {
-      // TODO(jroesch): support lowered funcs for multiple targets
-      CHECK_EQ(cfunc->funcs->functions.size(), 1);
-      auto pfunc = Downcast<tir::PrimFunc>((*cfunc->funcs->functions.begin()).second);
-      if (context_->seen_funcs.find(pfunc) == context_->seen_funcs.end()) {
+      if (cfunc->dispatch_func->functions.size() > 0) {
+        // do not cache funcs with multiple kernels
         op_index = context_->cached_funcs.size();
         context_->cached_funcs.push_back(cfunc);
-        context_->seen_funcs[pfunc] = op_index;
       } else {
-        op_index = context_->seen_funcs[pfunc];
+        CHECK_EQ(cfunc->funcs->functions.size(), 1);
+        auto pfunc = Downcast<tir::PrimFunc>((*cfunc->funcs->functions.begin()).second);
+        if (context_->seen_funcs.find(pfunc) == context_->seen_funcs.end()) {
+          op_index = context_->cached_funcs.size();
+          context_->cached_funcs.push_back(cfunc);
+          context_->seen_funcs[pfunc] = op_index;
+        } else {
+          op_index = context_->seen_funcs[pfunc];
+        }
       }
     }
 
@@ -977,10 +982,22 @@ void VMCompiler::Codegen() {
 
     if (target_str == "ext_dev") {
       continue;
-    } else if (funcs.count(target_str) == 0) {
-      funcs.emplace(target_str, mod);
     } else {
-      funcs[target_str]->Update(mod);
+      if (funcs.find(target_str) == funcs.end()) {
+        funcs.emplace(target_str, mod);
+      } else {
+        funcs[target_str]->Update(mod);
+      }
+      if (cfunc->dispatch_func->functions.size() > 0) {
+        std::string tgt_host_str = target_host_->str();
+        IRModule dp_mod = cfunc->dispatch_func;
+        dp_mod.CopyOnWrite();
+        if (funcs.find(tgt_host_str) == funcs.end()) {
+          funcs.emplace(tgt_host_str, dp_mod);
+        } else {
+          funcs[tgt_host_str]->Update(dp_mod);
+        }
+      }
     }
   }
 
