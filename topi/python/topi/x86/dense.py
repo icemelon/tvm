@@ -142,9 +142,9 @@ def dense_nopack(cfg, data, weight, bias=None, out_dtype=None):
     M, K = get_const_tuple(data.shape)
     N, _ = get_const_tuple(weight.shape)
     # create tuning space
-    cfg.define_split("tile_y", 32 if isinstance(M, tvm.tir.Var) else M, num_outputs=2)
-    cfg.define_split("tile_x", 32 if isinstance(N, tvm.tir.Var) else N, num_outputs=2)
-    cfg.define_split("tile_k", 32 if isinstance(K, tvm.tir.Var) else K, num_outputs=2)
+    cfg.define_split("tile_y", 32 if isinstance(M, tvm.tir.Var) else M, num_outputs=2, policy="verbose")
+    cfg.define_split("tile_x", 32 if isinstance(N, tvm.tir.Var) else N, num_outputs=2, policy="verbose")
+    cfg.define_split("tile_k", 32 if isinstance(K, tvm.tir.Var) else K, num_outputs=2, policy="verbose")
     if cfg.is_fallback:
         _default_dense_nopack_config(cfg, M, N, K)
 
