@@ -19,7 +19,7 @@
 A pass for manifesting explicit memory allocations.
 """
 import numpy as np
-from ..expr_functor import ExprVisitor, ExprMutator
+from ..expr_functor import ExprMutator, ExprVisitor
 from ..scope_builder import ScopeBuilder
 from . import transform
 from .. import op
@@ -54,7 +54,7 @@ def is_reshape(func):
 
 
 class ManifestAllocPass(ExprMutator):
-    """A pass for explictly manifesting all memory allocations in Relay."""
+    """A pass for explicitly manifesting all memory allocations in Relay."""
 
     def __init__(self, target_host):
         self.invoke_tvm = op.memory.invoke_tvm_op
