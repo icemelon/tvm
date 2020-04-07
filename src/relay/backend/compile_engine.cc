@@ -84,11 +84,11 @@ LoweredOutput::LoweredOutput(Array<te::Tensor> outputs,
 
 void LoweredOutput::UnionMaster(const LoweredOutput& other) {
   LoweredOutputNode* self = this->operator->();
-  if (self->master_op_pattern >= kCommReduce) {
-    CHECK(other->master_op_pattern < kCommReduce)
-      << "Two complicated op in a primitive function "
-      << " self=" << self->master_op << " other=" << other->master_op;
-  }
+  // if (self->master_op_pattern >= kCommReduce) {
+  //   CHECK(other->master_op_pattern < kCommReduce)
+  //     << "Two complicated op in a primitive function "
+  //     << " self=" << self->master_op << " other=" << other->master_op;
+  // }
   if (other->master_op_pattern > self->master_op_pattern) {
     CHECK(!self->specialized_condition.defined())
       << "Non-master op has a specialized implementation "
