@@ -56,7 +56,8 @@ def _lower(mod,
         opt_mod, _ = relay.optimize(mod, target, params)
         grc = graph_runtime_codegen.GraphRuntimeCodegen(None, target)
         grc.codegen(opt_mod["main"])
-    except tvm.TVMError:
+    except tvm.TVMError as e:
+        print(e)
         compiler = relay.vm.VMCompiler()
         if params:
             compiler.set_params(params)
@@ -135,8 +136,10 @@ def extract_from_multiple_program(mods, params, target, target_host=None, ops=No
             # wrap build call in thread to avoid multiprocessing problems
             build_thread = threading.Thread(target=_lower,
                                             args=(mod, target, param))
+            old_stack_size = threading.stack_size(1024 * 1024 * 32)
             build_thread.start()
             build_thread.join()
+            threading.stack_size(old_stack_size)
 
         logger.disabled = old_state
 
