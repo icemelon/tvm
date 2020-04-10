@@ -73,7 +73,7 @@ def _mx_fully_connected(inputs, attrs):
     use_flatten = attrs.get_bool("flatten", True)
     if has_flatten and use_flatten:
         inputs[0] = _op.nn.batch_flatten(inputs[0])
-    data_shape = _infer_type(inputs[0]).checked_type.shape
+    data_shape = _infer_shape(inputs[0])
     if len(data_shape) > 2:
         inputs[0] = _op.reverse_reshape(inputs[0], [-1, 0])
     res = _op.nn.dense(inputs[0], inputs[1], units=units)
@@ -81,8 +81,15 @@ def _mx_fully_connected(inputs, attrs):
         assert len(inputs) == 3
         res = _op.nn.bias_add(res, inputs[2], axis=-1)
     if len(data_shape) > 2:
-        new_shape = data_shape[:-1]
+        new_shape = list(data_shape[:-1])
         new_shape.append(units)
+        sym_idx = -1
+        for i, dim in enumerate(new_shape):
+            if not isinstance(dim, int):
+                assert sym_idx == -1, f"new shape: {new_shape}"
+                sym_idx = i
+        if sym_idx >= 0:
+            new_shape[sym_idx] = -1
         res = _op.reshape(res, new_shape)
     return res
 
@@ -688,6 +695,7 @@ def _mx_contrib_arange_like(inputs, attrs):
     ty = _infer_type(inputs[0]).checked_type
     assert ty
     shape, dtype = get_const_tuple(ty.shape), ty.dtype
+    need_reshape = False
     axis = attrs.get_int("axis", None)
     if axis is None:
         n_elems = 1
@@ -695,23 +703,32 @@ def _mx_contrib_arange_like(inputs, attrs):
             if not isinstance(dim, int):
                 raise tvm.error.OpError("Don't support arange_like with symbolic input shape.")
             n_elems *= dim
+        if len(shape) > 1:
+            need_reshape = True
     else:
         axis = axis + len(shape) if axis < 0 else axis
         assert 0 <= axis < len(shape)
         n_elems = shape[axis]
         if not isinstance(n_elems, int):
-            raise tvm.error.OpError("Don't support arange_like with symbolic input shape.")
-        shape = (n_elems,)
+            #raise tvm.error.OpError("Don't support arange_like with symbolic input shape.")
+            n_elems = _op.take(_op.shape_of(inputs[0]), _expr.const(axis, "int32"))
     start = attrs.get_float("start", 0.)
     step = attrs.get_float("step", 1.)
-    stop = start + step * n_elems
+    if isinstance(n_elems, int):
+        stop = _expr.const(start + step * n_elems, dtype=dtype)
+        start = _expr.const(start, dtype=dtype)
+        step = _expr.const(step, dtype=dtype)
+    else:
+        start = _expr.const(start, dtype=dtype)
+        step = _expr.const(step, dtype=dtype)
+        stop = start + step * n_elems.astype(dtype)
     new_attrs = {}
-    new_attrs["start"] = _expr.const(start, dtype=dtype)
-    new_attrs["stop"] = _expr.const(stop, dtype=dtype)
-    new_attrs["step"] = _expr.const(step, dtype=dtype)
+    new_attrs["start"] = start
+    new_attrs["stop"] = stop
+    new_attrs["step"] = step
     new_attrs["dtype"] = dtype
     ret = _op.arange(**new_attrs)
-    if len(shape) > 1:
+    if need_reshape:
         ret = _op.reshape(ret, shape)
     return ret
 
