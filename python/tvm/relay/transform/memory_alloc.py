@@ -18,8 +18,11 @@
 """
 A pass for manifesting explicit memory allocations.
 """
+from __future__ import annotations
+import attr
 import numpy as np
 from ..expr_functor import ExprMutator, ExprVisitor
+from ..function import Function
 from ..scope_builder import ScopeBuilder
 from . import transform
 from .. import op
@@ -28,7 +31,6 @@ from .. import ty, expr
 from ..backend import compile_engine
 from ..op.memory import flatten_tuple_type, from_tuple_type, to_tuple_type
 from ...import cpu
-
 
 def is_primitive(call):
     return hasattr(call, 'op') and hasattr(call.op, 'attrs') and \
@@ -267,13 +269,18 @@ class ManifestAlloc:
     """The explicit pass wrapper around ManifestAlloc."""
     def __init__(self, target_host):
         self.target_host = target_host
+        self.default_device = 0 # kCPU
 
     def transform_function(self, func, mod, _):
         # TODO(@jroesch): Is there a way to do one shot initilization?
         # can we have def pass_init?
         mod.import_from_std("core.rly")
+        ca = ContextAnalysis()
+        ca.visit(func)
+        import pdb; pdb.set_trace()
         ea = ManifestAllocPass(self.target_host)
         func = ea.visit(func)
+        import pdb; pdb.set_trace()
         return func
 
 
