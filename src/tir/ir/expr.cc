@@ -801,6 +801,9 @@ TVM_REGISTER_GLOBAL("tir.Shuffle")
 TVM_REGISTER_GLOBAL("tir.Let")
 .set_body_typed(LetNode::make);
 
+TVM_REGISTER_GLOBAL("tir.Any")
+.set_body_typed(AnyNode::make);
+
 TVM_REGISTER_GLOBAL("tir.Load")
 .set_body([](TVMArgs args,  TVMRetValue *ret) {
     DataType t = args[0];
