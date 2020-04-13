@@ -257,8 +257,8 @@ class ManifestAllocPass(ExprMutator):
                 # Handle static case.
                 outs = []
                 for i, out_ty in enumerate(out_types):
-                    import pdb; pdb.set_trace()
-                    out = self.make_static_allocation(scope, out_ty, i)
+                    ctx = self.get_context(call)
+                    out = self.make_static_allocation(scope, out_ty, ctx, i)
                     outs.append(out)
 
                 output = expr.Tuple(outs)
@@ -281,6 +281,7 @@ class ManifestAlloc:
         # can we have def pass_init?
         mod.import_from_std("core.rly")
         ca = ContextAnalysis(cpu(0))
+        print(func)
         ca.visit(func)
         print(func.astext(annotate=mk_analysis_annotator(ca.results())))
         ea = ManifestAllocPass(self.target_host, ca.results())
