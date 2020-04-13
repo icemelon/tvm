@@ -31,6 +31,9 @@ from .. import ty, expr
 from ..backend import compile_engine
 from ..op.memory import flatten_tuple_type, from_tuple_type, to_tuple_type
 from ...import cpu
+from typing import Optional
+from collections import defaultdict
+from .context_analysis import ContextAnalysis, mk_analysis_annotator
 
 def is_primitive(call):
     return hasattr(call, 'op') and hasattr(call.op, 'attrs') and \
@@ -127,8 +130,10 @@ class ManifestAllocPass(ExprMutator):
         size = self.compute_storage(tensor_type)
         alignment = self.compute_alignment(tensor_type.dtype)
         dtype = tensor_type.dtype
-        sto = scope.let("storage_{0}".format(i), self.alloc_storage(
-            size, alignment, self.default_context, dtype))
+
+        # Just need to pass the context here !
+        sto = scope.let("storage_{0}".format(name_hint), self.alloc_storage(
+            size, alignment, ctx, dtype))
         # TODO(@jroesch): There is a bug with typing based on the constant shape.
         tensor = self.alloc_tensor(sto, shape, dtype, tensor_type.shape)
         return scope.let("tensor_{0}".format(name_hint), tensor)
@@ -281,9 +286,11 @@ class ManifestAlloc:
         # can we have def pass_init?
         mod.import_from_std("core.rly")
         ca = ContextAnalysis(cpu(0))
+        print("BEFORE ANALYSIS")
         print(func)
         ca.visit(func)
-        print(func.astext(annotate=mk_analysis_annotator(ca.results())))
+        print("AFTER ANALYSIS")
+        print(func.astext(show_meta_data=False, annotate=mk_analysis_annotator(ca.results())))
         ea = ManifestAllocPass(self.target_host, ca.results())
         func = ea.visit(func)
         return func

@@ -621,7 +621,7 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
           // Get the dtype hint from the attributes.
           auto alloc_attrs = attrs.as<AllocStorageAttrs>();
           CHECK(alloc_attrs != nullptr)
-              << "must be the alloc tensor attrs";
+              << "must be AllocStorageAttrs object in attribute position";
           auto dtype = alloc_attrs->dtype;
 
           Index device_type;
