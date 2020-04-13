@@ -58,7 +58,7 @@ def is_reshape(func):
 class ManifestAllocPass(ExprMutator):
     """A pass for explicitly manifesting all memory allocations in Relay."""
 
-    def __init__(self, target_host):
+    def __init__(self, target_host, context_analysis):
         self.invoke_tvm = op.memory.invoke_tvm_op
         self.alloc_storage = op.memory.alloc_storage
         self.alloc_tensor = op.memory.alloc_tensor
@@ -68,7 +68,11 @@ class ManifestAllocPass(ExprMutator):
         self.target_host = target_host
         self.default_context = cpu(0)
         self.compute_dtype = "int64"
+        self.context_analysis = context_analysis
         super().__init__()
+
+    def get_context(self, expr):
+        return self.context_analysis[expr]
 
     def current_scope(self):
         return self.scopes[-1]
@@ -112,7 +116,7 @@ class ManifestAllocPass(ExprMutator):
         size *= (dtype.bits * dtype.lanes + 7) // 8
         return expr.const(size, dtype=self.compute_dtype)
 
-    def make_static_allocation(self, scope, tensor_type, i):
+    def make_static_allocation(self, scope, tensor_type, ctx, name_hint):
         """Allocate a tensor with a statically known shape."""
         shape = [int(sh) for sh in tensor_type.shape]
         if len(shape) == 0:
@@ -127,7 +131,7 @@ class ManifestAllocPass(ExprMutator):
             size, alignment, self.default_context, dtype))
         # TODO(@jroesch): There is a bug with typing based on the constant shape.
         tensor = self.alloc_tensor(sto, shape, dtype, tensor_type.shape)
-        return scope.let("tensor_{0}".format(i), tensor)
+        return scope.let("tensor_{0}".format(name_hint), tensor)
 
     def visit_let(self, let):
         scope = ScopeBuilder()
@@ -253,6 +257,7 @@ class ManifestAllocPass(ExprMutator):
                 # Handle static case.
                 outs = []
                 for i, out_ty in enumerate(out_types):
+                    import pdb; pdb.set_trace()
                     out = self.make_static_allocation(scope, out_ty, i)
                     outs.append(out)
 
@@ -275,12 +280,11 @@ class ManifestAlloc:
         # TODO(@jroesch): Is there a way to do one shot initilization?
         # can we have def pass_init?
         mod.import_from_std("core.rly")
-        ca = ContextAnalysis()
+        ca = ContextAnalysis(cpu(0))
         ca.visit(func)
-        import pdb; pdb.set_trace()
-        ea = ManifestAllocPass(self.target_host)
+        print(func.astext(annotate=mk_analysis_annotator(ca.results())))
+        ea = ManifestAllocPass(self.target_host, ca.results())
         func = ea.visit(func)
-        import pdb; pdb.set_trace()
         return func
 
 
