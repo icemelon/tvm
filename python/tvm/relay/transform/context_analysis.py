@@ -16,31 +16,26 @@
 # under the License.
 # pylint: disable=no-else-return,invalid-name,len-as-condition,too-many-nested-blocks
 """
-A pass for manifesting explicit memory allocations.
+A pass for analyzing device attribute of each IR node.
 """
-from __future__ import annotations
-import attr
-import numpy as np
-from ..expr_functor import ExprMutator, ExprVisitor
-from ..function import Function
-from ..scope_builder import ScopeBuilder
-from . import transform
-from .. import op
-from ... import DataType, register_func
-from .. import ty, expr
-from ..backend import compile_engine
-from ..._ffi.runtime_ctypes import TVMContext
-from ...import cpu
 from typing import Optional
+from ..expr_functor import ExprVisitor
+from ..function import Function
+from .. import op
+from ... import register_func
+from .. import expr as _expr
+from ..._ffi.runtime_ctypes import TVMContext
 from collections import defaultdict
+
 
 def is_primitive(call):
     return hasattr(call, 'op') and hasattr(call.op, 'attrs') and \
            hasattr(call.op.attrs, 'Primitive') and int(call.op.attrs.Primitive) == 1
 
+
 def iterative_let(let, each_binding, kont):
     bindings = []
-    while isinstance(let, expr.Let):
+    while isinstance(let, _expr.Let):
         lhs = let.var
         rhs = let.value
         bindings.append(each_binding(lhs, rhs))
@@ -49,11 +44,11 @@ def iterative_let(let, each_binding, kont):
     return kont(bindings, let)
 
 
-@attr.s(auto_attribs=True, hash=False, eq=False)
 class DeviceDomain:
-    domain: Optional[TVMContext]
+    def __init__(self, ctx: Optional[TVMContext]):
+        self.domain = ctx
 
-    def join(self, other: DeviceDomain) -> DeviceDomain:
+    def join(self, other: 'DeviceDomain') -> 'DeviceDomain':
         if self.domain is None and other.domain is None:
             return self
         elif self.domain is None:
@@ -64,7 +59,6 @@ class DeviceDomain:
               self.domain.device_id == other.domain.device_id):
             return self
         else:
-            import pdb; pdb.set_trace()
             raise Exception("all expressions must have a singular device")
 
     def __hash__(self):
@@ -79,11 +73,14 @@ class DeviceDomain:
         else:
             return self.domain == other.domain
 
+
 def bottom():
     return DeviceDomain(None)
 
+
 def device_type(ctx):
     return DeviceDomain(ctx)
+
 
 class ContextAnalysis(ExprVisitor):
     """Compute on which device each sub-expression will execute."""
@@ -127,6 +124,9 @@ class ContextAnalysis(ExprVisitor):
     def visit_var(self, var):
         self.device_for(var)
 
+    def visit_constant(self, con):
+        self.device_for(con)
+
     def device_copy(self, inp, output, src_dev_type, dst_dev_type):
         src_dev_type = device_type(TVMContext(src_dev_type, 0))
         self.unify(self.device_for(inp), src_dev_type)
@@ -134,8 +134,6 @@ class ContextAnalysis(ExprVisitor):
         self.unify(self.device_for(output), dst_dev_type)
 
     def unify_call(self, func, inputs, outputs):
-        # if func == op.op.get("memory.alloc_tensor"):
-        #     import pdb; pdb.set_trace()
         device = bottom()
         for arg in inputs:
             device = self.unify(device, self.device_for(arg))
@@ -150,19 +148,32 @@ class ContextAnalysis(ExprVisitor):
     def visit_call(self, call):
         if call.op == op.op.get("device_copy"):
             (input_tensor,) = call.args
-            self.device_copy(input_tensor, call, call.attrs.src_dev_type, call.attrs.dst_dev_type)
+            self.device_copy(input_tensor, call,
+                             call.attrs.src_dev_type,
+                             call.attrs.dst_dev_type)
         elif call.op == op.op.get("memory.alloc_storage"):
-            self.unify(self.device_for(call), device_type(TVMContext(call.attrs.device_type, call.attrs.device_id)))
+            call_dev = device_type(TVMContext(call.attrs.device_type,
+                                              call.attrs.device_id))
+            self.unify(self.device_for(call), call_dev)
+            size = call.args[0]
+            self.unify(self.device_for(size), call_dev)
+            alignment = call.args[1]
+            self.unify(self.device_for(alignment), call_dev)
         elif call.op == op.op.get("memory.alloc_tensor"):
             storage = call.args[0]
+            shape = call.args[1]
             self.unify(self.device_for(storage), self.device_for(call))
+            self.unify(self.device_for(shape), self.device_for(call))
         elif call.op == op.op.get("memory.invoke_tvm_op"):
             if call.args[0].body.op == op.op.get("device_copy"):
                 input_tensor = call.args[1][0]
                 output_tensor = call.args[2][0]
-                self.device_copy(input_tensor, output_tensor, call.attrs.src_dev_type, call.attrs.dst_dev_type)
+                self.device_copy(input_tensor, output_tensor,
+                                 call.attrs.src_dev_type,
+                                 call.attrs.dst_dev_type)
             else:
-                self.unify_call(call.args[0], call.args[1].fields, call.args[2].fields)
+                self.unify_call(call.args[0], call.args[1].fields,
+                                call.args[2].fields)
                 super().visit_call(call)
         elif isinstance(call.op, Function):
             device = bottom()
@@ -192,6 +203,7 @@ class ContextAnalysis(ExprVisitor):
 
         return results
 
+
 def mk_analysis_annotator(results):
     def _annotator(exp):
         if exp in results:
@@ -200,3 +212,15 @@ def mk_analysis_annotator(results):
             return ""
 
     return _annotator
+
+
+def ContextAnalysisWrapper(expr, default_device):
+    ca = ContextAnalysis(default_device)
+    ca.visit(expr)
+    ret = defaultdict(list)
+    for key, val in ca.results().items():
+        ret[key] = [val.device_type, val.device_id]
+    return ret
+
+
+register_func("relay.analysis.ContextAnalysis", ContextAnalysisWrapper)

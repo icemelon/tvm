@@ -31,6 +31,7 @@
 #include <tvm/support/logging.h>
 #include <tvm/relay/transform.h>
 #include <tvm/runtime/vm.h>
+#include <tvm/runtime/c_runtime_api.h>
 #include <tvm/relay/attrs/memory.h>
 #include <tvm/driver/driver_api.h>
 
@@ -48,6 +49,8 @@
 namespace tvm {
 namespace relay {
 
+using ExprDeviceMap = std::unordered_map<Expr, TVMContext, ObjectHash, ObjectEqual>;
+
 namespace transform {
 
 Pass LambdaLift();
@@ -57,6 +60,22 @@ Pass ManifestAlloc(Target target_host) {
   auto f = tvm::runtime::Registry::Get("relay.transform.ManifestAlloc");
   CHECK(f != nullptr) << "could not load memory allocation pass";
   return (*f)(target_host);
+}
+
+ExprDeviceMap ContextAnalysis(Expr expr, TVMContext default_device) {
+  auto f = tvm::runtime::Registry::Get("relay.analysis.ContextAnalysis");
+  CHECK(f != nullptr) << "could not load context analysis pass";
+  Map<Expr, Array<Integer> > m = (*f)(expr, default_device);
+  ExprDeviceMap ret;
+  for (const auto& it : m) {
+    TVMContext ctx;
+    Array<Integer> ints = it.second;
+    CHECK_EQ(ints.size(), 2U);
+    ctx.device_type = static_cast<DLDeviceType>(ints[0]->value);
+    ctx.device_id = static_cast<int>(ints[1]->value);
+    ret[it.first] = ctx;
+  }
+  return ret;
 }
 
 }  // namespace transform
@@ -247,7 +266,11 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
     // Collect the annotated device information.
     // This indicates where each Relay expr should be executed.
     if (targets_.size() > 1) {
-      expr_device_map_ = relay::CollectDeviceInfo(func);
+      transform::PassContext pass_ctx = PassContext::Current();
+      TVMContext default_device;
+      default_device.device_type = static_cast<DLDeviceType>(pass_ctx->fallback_device);
+      default_device.device_id = 0;
+      expr_device_map_ = transform::ContextAnalysis(func, default_device);
     }
 
     size_t i = 0;
@@ -279,7 +302,7 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
     for (const auto& it : func->params) {
       if (targets_.size() > 1) {
         CHECK_GT(expr_device_map_.count(it), 0U);
-        params_device_type.push_back(expr_device_map_[it]->value);
+        params_device_type.push_back(expr_device_map_[it].device_type);
       } else {
         params_device_type.push_back((targets_.begin())->first);
       }
@@ -327,7 +350,7 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
     } else {
       auto con = GetRef<Constant>(const_node);
       CHECK_GT(expr_device_map_.count(con), 0U);
-      context_->const_device_type.push_back(expr_device_map_[con]->value);
+      context_->const_device_type.push_back(expr_device_map_[con].device_type);
     }
     context_->constants.push_back(const_node->data);
     Emit(Instruction::LoadConst(konst_idx, NewRegister()));
@@ -517,7 +540,7 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
       } else {
         // heterogeneous execution.
         if (expr_device_map_.count(func) == 0 ||
-            targets_.count(expr_device_map_[func]->value) == 0) {
+            targets_.count(expr_device_map_[func].device_type) == 0) {
           transform::PassContext pass_ctx = PassContext::Current();
           auto dev_name = runtime::DeviceName(pass_ctx->fallback_device);
           LOG(INFO) << AsText(func, false);
@@ -526,7 +549,7 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
               << dev_name;
           target = CreateDefaultTarget(pass_ctx->fallback_device);
         } else {
-          target = targets_[expr_device_map_[func]->value];
+          target = targets_[expr_device_map_[func].device_type];
         }
       }
     }
@@ -632,7 +655,7 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
           } else {
             CHECK_GT(expr_device_map_.count(GetRef<Call>(call_node)), 0U)
                 << " The alloc_storage node is not annotated";
-            device_type = expr_device_map_[GetRef<Call>(call_node)]->value;
+            device_type = expr_device_map_[GetRef<Call>(call_node)].device_type;
             LOG(INFO) << "storage:: " << device_type << "\n" << AsText(GetRef<Call>(call_node), false);
             LOG(INFO) << size_register << " " << alignment_register;
           }
@@ -808,7 +831,7 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
   /*! \brief Map from var to register number. */
   std::unordered_map<Var, RegName, ObjectHash, ObjectEqual> var_register_map_;
   /*! \brief Map from Relay expr to device type. */
-  tvm::Map<Expr, Integer> expr_device_map_;
+  ExprDeviceMap expr_device_map_;
   /*! \brief Last used register number. */
   size_t last_register_;
   /*! \brief Total number of virtual registers allocated. */

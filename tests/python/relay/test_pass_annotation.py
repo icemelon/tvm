@@ -24,6 +24,42 @@ from tvm.contrib import graph_runtime
 from tvm.relay.expr_functor import ExprMutator
 from tvm.relay import transform
 
+def _trace(module, metadata, _):
+    if metadata.name == 'ManifestAlloc':
+        pass # import pdb; pdb.set_trace()
+
+
+def test_graph_runtime(target, ref_res, device, func, params, config,
+                       expected_index=None):
+    with relay.build_config(**config):
+        graph, lib, new_params = relay.build(
+            func,
+            target,
+            params=params)
+        contexts = [tvm.cpu(0), tvm.context(device)]
+        graph_json = json.loads(graph)
+        if "device_index" in graph_json["attrs"]:
+            device_index = graph_json["attrs"]["device_index"][1]
+            assert device_index == expected_index
+        mod = graph_runtime.create(graph, lib, contexts)
+        mod.set_input(**new_params)
+        mod.run()
+        res = mod.get_output(0).asnumpy()
+        tvm.testing.assert_allclose(res, ref_res, rtol=1e-5, atol=1e-5)
+
+
+def test_vm_runtime(target, ref_res, device, func, params, config,
+                    expected_index=None):
+    with relay.build_config(trace=_trace, **config):
+        mod = tvm.IRModule()
+        mod["main"] = func
+        exe = relay.vm.compile(mod, target)
+        vm = tvm.runtime.vm.VirtualMachine(exe)
+        ctx = [tvm.cpu(0), tvm.context(device)]
+        vm.init(ctx)
+        res = vm.invoke("main", **params)
+        tvm.testing.assert_allclose(res.asnumpy(), ref_res, rtol=1e-5, atol=1e-5)
+
 
 def run_opt_pass(expr, passes):
     passes = passes if isinstance(passes, list) else [passes]
@@ -330,6 +366,7 @@ def run_fusible_network(dev, tgt):
     tmp_log = np.log(tmp_add)
     tmp_sub = np.subtract(tmp_sqrt, tmp_log)
     ref_res = np.exp(tmp_sub)
+    params = {"x": x_data, "y": y_data}
 
     def get_func():
         add = relay.add(x, y)
@@ -340,48 +377,6 @@ def run_fusible_network(dev, tgt):
 
         func = relay.Function([x, y], exp)
         return func
-
-    def test_runtime(target, device, func, fallback_device=None,
-                     expected_index=None):
-        params = {"x": x_data, "y": y_data}
-        config = {"opt_level": 1}
-        if fallback_device:
-            config["fallback_device"] = fallback_device
-        with relay.build_config(**config):
-            graph, lib, params = relay.build(
-                func,
-                target,
-                params=params)
-            contexts = [tvm.cpu(0), tvm.context(device)]
-            graph_json = json.loads(graph)
-            if "device_index" in graph_json["attrs"]:
-                device_index = graph_json["attrs"]["device_index"][1]
-                assert device_index == expected_index
-            mod = graph_runtime.create(graph, lib, contexts)
-            mod.set_input(**params)
-            mod.run()
-            res = mod.get_output(0).asnumpy()
-            tvm.testing.assert_allclose(res, ref_res, rtol=1e-5, atol=1e-5)
-
-    def _trace(module, metadata, _):
-        if metadata.name == 'ManifestAlloc':
-            pass # import pdb; pdb.set_trace()
-
-    def test_vm_runtime(target, device, func, fallback_device=None,
-                        expected_index=None):
-        params = {"x": x_data, "y": y_data}
-        config = {"opt_level": 2}
-        if fallback_device:
-            config["fallback_device"] = fallback_device
-        with relay.build_config(trace=_trace, **config):
-            mod = tvm.IRModule()
-            mod["main"] = func
-            exe = relay.vm.compile(mod, target)
-            vm = tvm.runtime.vm.VirtualMachine(exe)
-            ctx = [tvm.cpu(0), tvm.context(device)]
-            vm.init(ctx)
-            res = vm.invoke("main", **params)
-            tvm.testing.assert_allclose(res.asnumpy(), ref_res, rtol=1e-5, atol=1e-5)
 
     def test_fuse_log_add(device, tgt):
         """ Only log and add are fused."""
@@ -423,10 +418,12 @@ def run_fusible_network(dev, tgt):
         dev_idx = ctx.device_type
         expected_index = [1, 1, 1, dev_idx, dev_idx, 1, 1, dev_idx, dev_idx]
         check_annotated_graph(annotated_func, expected_func)
-        test_runtime(target, device, annotated_func, fallback_device,
-                     expected_index)
-        test_vm_runtime(target, device, annotated_func, fallback_device,
-                        expected_index)
+        config = {"opt_level": 1, "fallback_device": fallback_device}
+        test_graph_runtime(target, ref_res, device, annotated_func, params,
+                           config, expected_index)
+        config = {"opt_level": 2, "fallback_device": fallback_device}
+        test_vm_runtime(target, ref_res, device, annotated_func, params,
+                        config, expected_index)
 
     def test_fuse_all(device, tgt):
         """Fuse all operators."""
@@ -455,7 +452,12 @@ def run_fusible_network(dev, tgt):
         annotated_func = annotated()
         expected_func = get_func()
         check_annotated_graph(annotated_func, expected_func)
-        test_runtime(target, device, annotated_func, fallback_device)
+        config = {"opt_level": 1, "fallback_device": fallback_device}
+        test_graph_runtime(target, ref_res, device, annotated_func, params,
+                           config)
+        config = {"opt_level": 2, "fallback_device": fallback_device}
+        test_vm_runtime(target, ref_res, device, annotated_func, params,
+                        config)
 
     def test_fallback_exp(device, tgt):
         fallback_device = tvm.context("cpu")
@@ -492,22 +494,29 @@ def run_fusible_network(dev, tgt):
         ctx = tvm.context(device, 0)
         dev_idx = ctx.device_type
         expected_index = [dev_idx, dev_idx, dev_idx, 1, 1]
+        config = {"opt_level": 1, "fallback_device": fallback_device}
         check_annotated_graph(annotated_func, expected_func)
-        test_runtime(target, device, annotated_func, fallback_device,
-                     expected_index)
+        test_graph_runtime(target, ref_res, device, annotated_func, params, config,
+                           expected_index)
+        config = {"opt_level": 2, "fallback_device": fallback_device}
+        test_vm_runtime(target, ref_res, device, annotated_func, params, config,
+                        expected_index)
 
     def test_fallback_all_operators(device, tgt):
         target = {device: tgt, "cpu": "llvm"}
         annotated_func = get_func()
         expected_func = get_func()
+        config = {"opt_level": 2}
         check_annotated_graph(annotated_func, expected_func)
-        test_runtime(target, device, annotated_func)
+        test_graph_runtime(target, ref_res, device, annotated_func, params, config)
+        test_vm_runtime(target, ref_res, device, annotated_func, params, config)
 
 
     test_fuse_log_add(dev, tgt)
-    # test_fuse_all(dev, tgt)
-    # test_fallback_exp(dev, tgt)
-    # test_fallback_all_operators(dev, tgt)
+    test_fuse_all(dev, tgt)
+    test_fallback_exp(dev, tgt)
+    test_fallback_all_operators(dev, tgt)
+
 
 def run_unpropagatable_graph(dev, tgt):
     R""" The network is as following:
@@ -562,18 +571,12 @@ def run_unpropagatable_graph(dev, tgt):
     params = {"a": a_data, "b": b_data, "c": c_data, "d": d_data}
     config = {"opt_level": 0}
     config["fallback_device"] = fallback_device
-    with relay.build_config(**config):
-        graph, lib, params = relay.build(annotated_func, target, params=params)
-        contexts = [tvm.cpu(0), tvm.context(dev)]
-        graph_json = json.loads(graph)
-        if "device_index" in graph_json["attrs"]:
-            device_index = graph_json["attrs"]["device_index"][1]
-            assert device_index == expected_index
-        mod = graph_runtime.create(graph, lib, contexts)
-        mod.set_input(**params)
-        mod.run()
-        res = mod.get_output(0).asnumpy()
-        tvm.testing.assert_allclose(res, ref_res, rtol=1e-5, atol=1e-5)
+
+    test_graph_runtime(target, ref_res, dev, annotated_func, params, config,
+                       expected_index)
+
+    config["opt_level"] = 2
+    test_vm_runtime(target, ref_res, dev, annotated_func, params, config)
 
 
 def test_check_run():
@@ -583,7 +586,7 @@ def test_check_run():
             print("Skip test because %s is not enabled." % dev)
             continue
         run_fusible_network(dev, tgt)
-        # run_unpropagatable_graph(dev, tgt)
+        run_unpropagatable_graph(dev, tgt)
 
 
 def test_tuple_get_item():
@@ -622,10 +625,10 @@ def test_tuple_get_item():
 
 
 if __name__ == "__main__":
-    # test_redundant_annotation()
-    # test_annotate_expr()
-    # test_annotate_all()
-    # test_annotate_none()
-    # test_conv_network()
+    test_redundant_annotation()
+    test_annotate_expr()
+    test_annotate_all()
+    test_annotate_none()
+    test_conv_network()
     test_check_run()
-    # test_tuple_get_item()
+    test_tuple_get_item()

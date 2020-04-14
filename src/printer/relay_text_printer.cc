@@ -879,7 +879,7 @@ std::vector<Doc> RelayTextPrinter::PrintCallAttrs(
     const Attrs& attrs, const Expr& op) {
   std::vector<Doc> docs;
   if (!attrs.defined()) return docs;
-  const auto* op_node = op.as<OpNode>();
+  // const auto* op_node = op.as<OpNode>();
   // if (op_node && (attrs->type_index() != op_node->attrs_type_index)) {
   //   // fallback
   //   Doc doc;
