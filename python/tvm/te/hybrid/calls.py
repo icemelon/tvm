@@ -53,7 +53,24 @@ def _range(annotation, args):
     return iter_var, low, ext, kind
 
 
-range = unroll = vectorize = parallel = const_range = _range  # pylint: disable=invalid-name
+def const_range(annotation, args):
+    """Handling TVM loop types"""
+    n = args.__len__()
+    if n == 1:
+        low, ext, step = const(0, dtype='int32'), args[0], const(1, dtype='int32')
+    elif n == 2:
+        low, ext, step = args[0], args[1], const(1, dtype='int32')
+    else:
+        _internal_assert(n == 3, "A const_loop intrinsic should only have 1-3 arguments!")
+        low, ext, step = args[0], args[1], args[2]
+    if not tvm.tir.analysis.expr_deep_equal(low, const(0, dtype='int32')):
+        ext = ext - low
+    for_type = LOOP_INTRIN[annotation]
+    iter_var = None
+    return iter_var, low, ext, step, None
+
+
+range = unroll = vectorize = parallel = _range  # pylint: disable=invalid-name
 
 
 def bind(func_id, args):

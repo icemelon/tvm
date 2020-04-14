@@ -480,29 +480,32 @@ class HybridParser(ast.NodeVisitor):
         return op
 
     def visit_For(self, node):
-        iter_var, low, ext, kind = self.visit(node.iter)
+        iter_res = self.visit(node.iter)
         _internal_assert(
             isinstance(node.target, ast.Name), "The loop iterator should be a variable!"
         )
 
         _name = node.target.id
 
-        if isinstance(kind, tuple):
-            low = self.analyzer.simplify(low)
+        if len(iter_res) == 5:
+            _, low, ext, step, _ = iter_res
+            low = self.analzyer.simplify(low)
             ext = self.analyzer.simplify(ext)
+            step = self.analyzer.simplify(step)
             _internal_assert(
-                isinstance(low, _expr.ConstExpr) and isinstance(ext, _expr.ConstExpr),
-                "Const range should start from a const " + "and iterate const times",
+                isinstance(low, _expr.ConstExpr) and isinstance(ext, _expr.ConstExpr) and
+                isinstance(step, _expr.ConstExpr),
+                "Const range should start from a const " + "and iterate const times"
             )
 
-            low, ext = low.value, ext.value
+            low, ext, step = low.value, ext.value, step.value
             if ext > 114514:
                 logging.log(
                     logging.CRITICAL, "[Warning] Are you sure to unroll a large loop in Python?"
                 )
 
             bodies = []
-            for i in range(low, low + ext):
+            for i in range(low, low + ext, step):
                 self.add_symbol(_name, Symbol.ConstLoopVar, i)
                 body = visit_list_to_block(self.visit, node.body)
                 body = self.wrap_up_realize(node, body)
@@ -510,6 +513,7 @@ class HybridParser(ast.NodeVisitor):
                 self.symbols.pop(_name)
             return concat_list_to_block(bodies)
 
+        iter_var, low, ext, kind = iter_res
         if iter_var is None:
             _internal_assert(kind is not None, "The loop iterating function parse error!")
             offset = iter_var = tvm.te.var(_name)
