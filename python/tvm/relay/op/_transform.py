@@ -300,6 +300,78 @@ def reshape_shape_func(attrs, inputs, out_ndims):
 
 
 @script
+def _reverse_reshape_shape_func(data_shape, newshape, out_ndim):
+    out = output_tensor((out_ndim,), "int64")
+    src_idx = len(data_shape) - 1
+    dst_idx = out_ndim - 1
+    infer_idx = -1
+    copy = False
+    skip = 0
+    for i in const_range(len(newshape)-1, -1, -1):
+        if skip > 0:
+            skip -= 1
+        elif newshape[i] > 0:
+            out[dst_idx] = int64(newshape[i])
+            src_idx -= 1
+            dst_idx -= 1
+        elif newshape[i] == 0:
+            out[dst_idx] = data_shape[src_idx]
+            src_idx -= 1
+            dst_idx -= 1
+        elif newshape[i] == -1:
+            assert infer_idx < 0, "One and only one dim can be inferred"
+            out[dst_idx] = int64(1)
+            infer_idx = i
+            dst_idx -= 1
+        elif newshape[i] == -2:
+            copy = True
+        elif newshape[i] == -3:
+            assert data_shape.shape[0] - src_idx > 1, \
+                "Not enough dims in input shape for -3"
+            out[dst_idx] = data_shape[src_idx] * data_shape[src_idx+1]
+            src_idx -= 2
+            dst_idx -= 1
+        elif newshape[i] == -4:
+            assert i >= 2, "Not enough dims in new shape for -4"
+            if newshape[i-1] == -1:
+                assert newshape[i-2] != -1, "Split dims cannot both be -1."
+                out[dst_idx] = data_shape[src_idx] // int64(newshape[i-2])
+                out[dst_idx-1] = int64(newshape[i-2])
+            else:
+                out[dst_idx] = int64(newshape[i-1])
+                if newshape[i-2] == -1:
+                    out[dst_idx-1] = data_shape[src_idx] // int64(newshape[i-1])
+                else:
+                    out[dst_idx-1] = int64(newshape[i-2])
+            assert data_shape[src_idx] == out[dst_idx] * out[dst_idx-1],\
+                "Product of split dims doesn't match to input dim"
+            src_idx -= 1
+            dst_idx -= 2
+            skip = 2
+        else:
+            assert False, "Invalid special values in new shape"
+    if len(data_shape.shape) > 0:
+        # if data is not constant, we can then handle -1 and -2
+        if copy:
+            for i in range(src_idx+1):
+                out[dst_idx] = data_shape[src_idx-i]
+                dst_idx -= 1
+        if infer_idx >= 0:
+            old_size = int64(1)
+            for i in const_range(data_shape.shape[0]):
+                old_size *= data_shape[i]
+            new_size = int64(1)
+            for i in const_range(out.shape[0]):
+                new_size *= out[i]
+            out[infer_idx] = old_size // new_size
+    return out
+
+@_reg.register_shape_func("contrib_reverse_reshape", False)
+def reverse_reshape_shape_func(attrs, inputs, out_ndims):
+    newshape = get_const_tuple(attrs.newshape)
+    return [_reverse_reshape_shape_func(inputs[0], convert(newshape), out_ndims[0])]
+
+@script
 def _take_no_axis_shape_func(indices_shape, out_ndim):
     out = output_tensor((out_ndim,), "int64")
     for i in const_range(out_ndim):
@@ -580,7 +652,6 @@ def _transpose_shape_func(data_shape, axes):
     out = output_tensor((data_shape.shape[0],), "int64")
     for i in const_range(len(axes)):
         out[i] = data_shape[axes[i]]
-
     return out
 
 
