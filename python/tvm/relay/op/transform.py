@@ -721,7 +721,7 @@ def reverse_reshape(data, newshape):
     .. code-block:: python
 
         data.shape = (10,5,4), newshape = (-1,0), reshape results in (40,5)
-        data.shape = (10,5,4), newshape = (-1,0), reverse_reshape results in (40,5)
+        data.shape = (10,5,4), newshape = (-1,0), reverse_reshape results in (50,4)
 
     Parameters
     ----------

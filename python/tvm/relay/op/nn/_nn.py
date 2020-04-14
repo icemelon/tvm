@@ -689,6 +689,19 @@ def dense_shape_func(attrs, inputs, _):
     return ret
 
 @script
+def _batch_matmul_shape_func(data_shape, weight_shape):
+    out = output_tensor((3,), "int64")
+    out[0] = data_shape[0]
+    out[1] = data_shape[1]
+    out[2] = weight_shape[1]
+    return out
+
+@reg.register_shape_func("nn.batch_matmul", False)
+def batch_matmul_shape_func(attrs, inputs, _):
+    """Shape function for batch_matmul op."""
+    return [_batch_matmul_shape_func(inputs[0], inputs[1])]
+
+@script
 def _pad_shape_func(data_shape, pad_width):
     out = output_tensor((data_shape.shape[0],), "int64")
     for i in const_range(out.shape[0]):

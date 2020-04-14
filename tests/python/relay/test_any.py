@@ -157,6 +157,25 @@ def test_any_reshape():
     verify_any_reshape(any_dims(3), (-4, 2, -1, -2), (6, 3, 4), (2, 3, 3, 4))
     verify_any_reshape(any_dims(3), (-4, -1, 2, -3), (6, 3, 4), (3, 2, 12))
 
+def verify_any_reverse_reshape(x_shape, newshape, x_np_shape, out_shape):
+    x = relay.var('x', shape=x_shape, dtype="float32")
+    y = relay.reverse_reshape(x, newshape=newshape)
+    mod = tvm.IRModule()
+    mod["main"] = relay.Function([x], y)
+    data = np.random.uniform(size=x_np_shape).astype('float32')
+    for kind in ["debug", "vm"]:
+        ex = relay.create_executor(kind, mod=mod, ctx=tvm.cpu(), target="llvm")
+        result = ex.evaluate()(data).asnumpy()
+        assert result.shape == out_shape
+        tvm.testing.assert_allclose(result.flatten(), data.flatten())
+
+def test_any_reverse_reshape():
+    verify_any_reverse_reshape(any_dims(3), (1, -1), (2, 3, 4), (1, 24))
+    verify_any_reverse_reshape(any_dims(3), (-1, 0), (2, 3, 4), (6, 4))
+    verify_any_reverse_reshape(any_dims(3), (-2, 0), (2, 3, 4), (2, 3, 4))
+    # verify_any_reverse_reshape(any_dims(3), (-2, 2, -1, -4), (3, 4, 6), (3, 4, 2, 3))
+    # verify_any_reverse_reshape(any_dims(3), (-4, -1, 2, -3), (6, 3, 4), (3, 2, 12))
+
 def verify_any_argwhere(x_shape, x_np_shape, dtype="bool"):
     x = relay.var('x', shape=x_shape, dtype=dtype)
     y = relay.argwhere(x)
@@ -674,6 +693,7 @@ if __name__ == "__main__":
     test_any_broadcast_fail()
     test_any_concat()
     test_any_reshape()
+    test_any_reverse_reshape()
     test_any_take()
     test_any_tile()
     test_any_split()

@@ -605,6 +605,12 @@ inline Tensor strided_slice(const Tensor& x,
     int64_t end_range = stride_vec[i] < 0 ? dim_i - 1 : dim_i;
     // transform negative indices to positive value, clips on the correct range
     auto index_canonicalization = [dim_i, begin_range, end_range](int64_t index) {
+      if (dim_i < 0) {
+        // symbolic dim
+        CHECK_GE(index, 0);
+        CHECK_NE(index, max_range);
+        return std::max(index, begin_range);
+      }
       if (index < 0) {
         index += dim_i;
       }
