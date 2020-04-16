@@ -72,7 +72,12 @@ void VirtualMachineDebug::InvokePacked(Index packed_index,
                                        Index output_size,
                                        const std::vector<ObjectRef>& args) {
   CHECK(exec_);
-  auto ctx = this->GetParamsContext();
+  CHECK(!ctxs_.empty()) << "Context has not been initialized yet.";
+  // TODO(@zhiics) Need to record the device type of each packed func so that
+  // we can correctly sync.
+  Index fallback_device_type = static_cast<Index>(ctxs_[0].device_type);
+  auto ctx = this->GetContext(fallback_device_type);
+
   auto op_begin = std::chrono::high_resolution_clock::now();
   VirtualMachine::InvokePacked(packed_index, func, arg_count, output_size, args);
   TVMSynchronize(ctx.device_type, ctx.device_id, nullptr);

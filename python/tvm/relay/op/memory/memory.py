@@ -40,6 +40,7 @@ def invoke_tvm_op(func, inputs, outputs):
     """
     return _make.invoke_tvm_op(func, inputs, outputs)
 
+
 def alloc_tensor(storage, shape, dtype='float32', assert_shape=None):
     """Allocate a tensor with the provided shape, and dtype.
 
@@ -51,10 +52,11 @@ def alloc_tensor(storage, shape, dtype='float32', assert_shape=None):
     shape : tvm.relay.Expr
         The shape of the tensor to allocate.
 
-    dtype: str
+    dtype : str
         The dtype of the tensor.
 
-    assert_shape: Control the static shape when computed by dynamic shape expression.
+    assert_shape : List[tvm.ir.PrimExpr]
+        Control the static shape when computed by dynamic shape expression.
 
     Returns
     -------
@@ -63,6 +65,7 @@ def alloc_tensor(storage, shape, dtype='float32', assert_shape=None):
     """
     return _make.alloc_tensor(storage, shape, dtype, assert_shape)
 
+
 def alloc_storage(size, alignment, ctx, dtype_hint='float32'):
     """Allocate a piece of tensor storage.
 
@@ -70,8 +73,10 @@ def alloc_storage(size, alignment, ctx, dtype_hint='float32'):
     ----------
     size : tvm.relay.Expr
         The size of the allocation.
+
     alignment : tvm.relay.Expr
         The alignment of the allocation.
+
     dtype : str
         The dtype_hint of the allocation.
 
@@ -89,8 +94,10 @@ def shape_func(func, inputs, outputs, dependent=False):
     ----------
     func : tvm.relay.Expr
         The primitive function from which to compute the shape function.
+
     inputs : tvm.relay.Tuple
         The tupled inputs.
+
     outputs : tvm.relay.Tuple
         The tupled outputs.
 

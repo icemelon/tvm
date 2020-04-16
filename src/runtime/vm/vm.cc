@@ -712,20 +712,6 @@ PackedFunc VirtualMachine::GetFunction(const std::string& name,
   }
 }
 
-TVMContext VirtualMachine::GetParamsContext() const {
-  CHECK(!ctxs_.empty()) << "Context has not been initialized yet.";
-
-  // Use the fallback device if no device index is available.
-  int fallback_device_type = static_cast<int>(ctxs_[0].device_type);
-  // TODO(wweic): For heterogeneous execution, get device information from byte
-
-  const auto& cit =
-      std::find_if(ctxs_.begin(), ctxs_.end(), [&fallback_device_type](const TVMContext& c) {
-        return fallback_device_type == static_cast<int>(c.device_type);
-      });
-  return (cit == ctxs_.end() ? ctxs_[0] : *cit);
-}
-
 TVMContext VirtualMachine::GetContext(Index device_type) const {
   CHECK(!ctxs_.empty()) << "Context has not been initialized yet.";
 
@@ -793,9 +779,6 @@ ObjectRef VirtualMachine::Invoke(const std::string& name, const std::vector<Obje
 void VirtualMachine::InvokePacked(Index packed_index, const PackedFunc& func,
                                   Index arg_count, Index output_size,
                                   const std::vector<ObjectRef>& args) {
-  if (func == nullptr) {
-    CHECK_EQ(arg_count, 2U) << "Device copy op exepcts 2 args (input, output)";
-  }
   size_t arity = 0;
   for (Index i = 0; i < arg_count; i++) {
     if (const auto* obj = args[i].as<ADTObj>()) {
@@ -822,8 +805,12 @@ void VirtualMachine::InvokePacked(Index packed_index, const PackedFunc& func,
     }
   }
 
-  // Use runtime facility functions to handle device copy.
-  if (func == nullptr) {
+  if (func != nullptr) {
+    // Invoke the packedfunc for other ops.
+    TVMRetValue rv;
+    func.CallPacked(TVMArgs(values.data(), codes.data(), arity), &rv);
+  } else {
+    // Use runtime facility functions to handle device copy.
     CHECK_EQ(arity & 0x1, 0U)
       << "The number of buffers should be even for device copy";
     // The first half of the buffer is input and second half is output.
@@ -831,14 +818,11 @@ void VirtualMachine::InvokePacked(Index packed_index, const PackedFunc& func,
     for (size_t i = 0; i < mid; i++) {
       DLTensor* from = static_cast<DLTensor*>(values[i].v_handle);
       DLTensor* to = static_cast<DLTensor*>(values[i + mid].v_handle);
-      LOG(INFO) << "copy from: " << from->ctx.device_type << " to " << to->ctx.device_type;
+      DLOG(INFO) << "Copy data from " << DeviceName(from->ctx.device_type)
+                 << " to " << DeviceName(to->ctx.device_type);
       int ret = TVMArrayCopyFromTo(from, to, nullptr);
       CHECK_EQ(ret, 0) << TVMGetLastError();
     }
-  } else {
-    // Invoke the packedfunc for other ops.
-    TVMRetValue rv;
-    func.CallPacked(TVMArgs(values.data(), codes.data(), arity), &rv);
   }
 }
 
@@ -848,7 +832,7 @@ void VirtualMachine::LoadExecutable(const Executable* exec) {
 
   runtime::Module lib = exec_->lib;
   // Get the list of packed functions.
-  CHECK(exec->primitive_map.empty() || lib.operator->())
+  CHECK(exec->primitive_map.empty() || lib.get())
       << "runtime module should have been built for primitive functions"
       << "\n";
   for (const auto& it : exec_->primitive_map) {
@@ -982,8 +966,7 @@ void VirtualMachine::RunLoop() {
         const auto& arity = instr.arity;
         std::vector<ObjectRef> args;
         for (Index i = 0; i < arity; ++i) {
-          DLOG(INFO) <<
-            "arg" << i << " $" << instr.packed_args[i];
+          DLOG(INFO) << "arg" << i << " $" << instr.packed_args[i];
           auto arg = ReadRegister(instr.packed_args[i]);
           args.push_back(arg);
         }

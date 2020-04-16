@@ -33,6 +33,7 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <unordered_set>
 #include <vector>
 
 namespace tvm {
@@ -804,6 +805,7 @@ class VirtualMachine : public runtime::ModuleNode {
 
   /*! \brief Get context from the context list based on a given device type. */
   TVMContext GetContext(Index device_type) const;
+
  private:
   /*!
    * \brief Invoke a global setting up the VM state to execute.

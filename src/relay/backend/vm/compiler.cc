@@ -543,7 +543,6 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
             targets_.count(expr_device_map_[func].device_type) == 0) {
           transform::PassContext pass_ctx = PassContext::Current();
           auto dev_name = runtime::DeviceName(pass_ctx->fallback_device);
-          LOG(INFO) << AsText(func, false);
           LOG(WARNING)
               << "The function is not annotated or no target is provided. Fallback to "
               << dev_name;
@@ -656,8 +655,6 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
             CHECK_GT(expr_device_map_.count(GetRef<Call>(call_node)), 0U)
                 << " The alloc_storage node is not annotated";
             device_type = expr_device_map_[GetRef<Call>(call_node)].device_type;
-            LOG(INFO) << "storage:: " << device_type << "\n" << AsText(GetRef<Call>(call_node), false);
-            LOG(INFO) << size_register << " " << alignment_register;
           }
 
           Emit(Instruction::AllocStorage(size_register, alignment_register, dtype, device_type,
@@ -706,7 +703,7 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
       auto it = context_->global_map.find(global);
       CHECK(it != context_->global_map.end());
       DLOG(INFO) << "VisitExpr_: generating invoke for " << global->name_hint
-                      << " with func_index=" << it->second;
+                 << " with func_index=" << it->second;
 
       // TODO(tvm-team):
       // Think about mixed call into global that is not a relay::Function
@@ -912,7 +909,6 @@ void VMCompiler::Lower(IRModule mod,
 
   // Run the optimizations necessary to target the VM.
   context_.module = OptimizeModule(mod, targets_);
-  LOG(INFO) << AsText(context_.module, false);
 
   // Populate the global map.
   //
@@ -948,7 +944,6 @@ void VMCompiler::Lower(IRModule mod,
     exec_->constants.push_back(data);
   }
   for (auto i : context_.const_device_type) {
-    LOG(INFO) << "device type:: " << i;
     exec_->const_device_type.push_back(i);
   }
 
@@ -961,7 +956,6 @@ void VMCompiler::Lower(IRModule mod,
   size_t primitive_index = 0;
   for (const auto& cfunc : context_.cached_funcs) {
     exec_->primitive_map.insert({cfunc->func_name, primitive_index++});
-    LOG(INFO) << cfunc->func_name;
   }
 }
 
@@ -1080,7 +1074,6 @@ void VMCompiler::Codegen() {
     IRModule mod = cfunc->funcs;
     mod.CopyOnWrite();
 
-    LOG(INFO) << "1026: " << target_str << "  " << cfunc->func_name;
     if (target_str == "ext_dev") {
       continue;
     } else if (cfunc->func_name.find("__copy") == 0) {

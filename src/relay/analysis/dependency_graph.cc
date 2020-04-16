@@ -66,17 +66,16 @@ class DependencyGraph::Creator : private ExprFunctor<void(const Expr& e)> {
 
   std::unordered_set<Expr, ObjectHash, ObjectEqual> visited_;
 
-  DependencyGraph::Node* NewNode(bool new_scope, const Expr& expr = Expr(nullptr)) {
+  DependencyGraph::Node* NewNode(bool new_scope) {
     auto* ret = arena_->make<DependencyGraph::Node>();
     ret->new_scope = new_scope;
-    ret->expr = expr;
     return ret;
   }
 
   void VisitExpr(const Expr& e) final {
     if (visited_.count(e) == 0) {
       if (graph_.expr_node.count(e) == 0) {
-        graph_.expr_node[e] = NewNode(false, e);
+        graph_.expr_node[e] = NewNode(false);
       }
       visited_.insert(e);
       ExprFunctor<void(const Expr&)>::VisitExpr(e);

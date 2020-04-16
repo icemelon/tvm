@@ -18,9 +18,11 @@
 """
 A pass for manifesting explicit memory allocations.
 """
-from __future__ import annotations
-import attr
 import numpy as np
+import logging
+
+from tvm.ir.transform import PassContext
+from tvm import nd
 from ..expr_functor import ExprMutator, ExprVisitor
 from ..function import Function
 from ..scope_builder import ScopeBuilder
@@ -30,14 +32,9 @@ from ... import DataType, register_func
 from .. import ty, expr
 from ..backend import compile_engine
 from ..op.memory import flatten_tuple_type, from_tuple_type, to_tuple_type
+from ..analysis.context_analysis import ContextAnalysis, mk_analysis_annotator, is_primitive
 from ...import cpu
-from typing import Optional
-from collections import defaultdict
-from .context_analysis import ContextAnalysis, mk_analysis_annotator
 
-def is_primitive(call):
-    return hasattr(call, 'op') and hasattr(call.op, 'attrs') and \
-           hasattr(call.op.attrs, 'Primitive') and int(call.op.attrs.Primitive) == 1
 
 
 class IsReshapePass(ExprVisitor):
@@ -131,7 +128,6 @@ class ManifestAllocPass(ExprMutator):
         alignment = self.compute_alignment(tensor_type.dtype)
         dtype = tensor_type.dtype
 
-        # Just need to pass the context here !
         sto = scope.let("storage_{0}".format(name_hint), self.alloc_storage(
             size, alignment, ctx, dtype))
         # TODO(@jroesch): There is a bug with typing based on the constant shape.
@@ -206,6 +202,7 @@ class ManifestAllocPass(ExprMutator):
             size = self.compute_storage_in_relay(
                 out_shape, out_type.dtype)
             alignment = self.compute_alignment(out_type.dtype)
+            # Let CPU compute the shape func.
             context = tvm.cpu(0)
             sto = scope.let("storage_{i}".format(i=i), self.alloc_storage(
                 size, alignment, context, out_type.dtype))
@@ -286,12 +283,16 @@ class ManifestAlloc:
         # TODO(@jroesch): Is there a way to do one shot initilization?
         # can we have def pass_init?
         mod.import_from_std("core.rly")
-        ca = ContextAnalysis(cpu(0))
-        print("BEFORE ANALYSIS")
-        print(func)
+        pass_ctx = PassContext.current()
+        fallback_ctx = nd.context(pass_ctx.fallback_device)
+        ca = ContextAnalysis(fallback_ctx)
+        # We use logger here to help debug.
+        logging.debug("-----BEFORE ANALYSIS-----")
+        logging.debug(func.astext(False))
         ca.visit(func)
-        print("AFTER ANALYSIS")
-        print(func.astext(show_meta_data=False, annotate=mk_analysis_annotator(ca.results())))
+        logging.debug("-----AFTER ANALYSIS-----")
+        logging.debug(func.astext(show_meta_data=False,
+                                  annotate=mk_analysis_annotator(ca.results())))
         ea = ManifestAllocPass(self.target_host, ca.results())
         func = ea.visit(func)
         return func

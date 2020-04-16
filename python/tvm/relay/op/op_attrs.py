@@ -353,3 +353,18 @@ class Conv2DTransposeAttrs(Attrs):
 @tvm._ffi.register_object("relay.attrs.SubPixelAttrs")
 class SubPixelAttrs(Attrs):
     """Attributes used in depth to space and space to depth operators"""
+
+
+@tvm._ffi.register_object("relay.attrs.AllocStorageAttrs")
+class AllocStorageAttrs(Attrs):
+    """Attributes used in alloc_storage operators"""
+
+
+@tvm._ffi.register_object("relay.attrs.AllocTensorAttrs")
+class AllocTensorAttrs(Attrs):
+    """Attributes used in alloc_tensor operators"""
+
+
+@tvm._ffi.register_object("relay.attrs.ShapeFuncAttrs")
+class ShapeFuncAttrs(Attrs):
+    """Attributes used in shape_func operators"""

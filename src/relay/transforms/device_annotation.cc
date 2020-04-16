@@ -371,7 +371,6 @@ class DeviceInfo {
 
  private:
   struct BottomUpVisitor : private ExprVisitor {
-
     Map<Expr, Integer> Visit(const Expr& expr) {
       if (const auto* fn = expr.as<FunctionNode>()) {
         this->VisitExpr(fn->body);
