@@ -14,20 +14,23 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=wildcard-import, redefined-builtin, invalid-name
-"""The Relay IR namespace containing the analysis passes."""
-# Analysis passes
-from .analysis import *
+"""Unit tests for context analysis pass"""
+import tvm
+from tvm import te
+import numpy as np
+from tvm import relay
+from tvm.relay.analysis import context_analysis
 
-# Annotations
-from .annotated_regions import AnnotatedRegionSet
-
-# Call graph
-from . import call_graph
-from .call_graph import CallGraph
-
-# Feature
-from . import feature
-from . import sparse_dense
-
-from .import context_analysis
+def check_context_analysis(func, check_fn):
+    mod = tvm.IRModule()
+    mod['main'] = func
+    ex = relay.create_executor('vm', mod)
+    args = []
+    for param in func.params:
+        param = param.type_annotation
+        shape = [int(sh) for sh in param.shape]
+        data = np.random.rand(*shape).astype(param.dtype)
+        args.append(tvm.nd.array(data))
+    result = ex.evaluate(mod['main'])(*args)
+    py_res = check_fn(*[arg.asnumpy() for arg in args])
+    np.testing.assert_allclose(result.asnumpy(), py_res)
