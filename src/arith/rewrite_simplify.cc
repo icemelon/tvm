@@ -982,6 +982,11 @@ VisitExpr_(const FloorModNode* op) {
                        c2.Eval()->value > 0 &&
                        c1.Eval()->value % c2.Eval()->value == 0);
 
+    if (CanProveGreaterEqual(op->a , 0) && CanProveGreaterEqual(op->b, 0) &&
+        CanProveGreater(op->b - op->a, 0)) {
+      return op->a;
+    }
+
     // try modular analysis
     if (floormod(x, c1).Match(ret)) {
       ModularSet mod = analyzer_->modular_set(x.Eval());

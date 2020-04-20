@@ -159,6 +159,86 @@ class ConstIntBoundAnalyzer {
   Impl* impl_;
 };
 
+class SymbolicBoundNode : public Object {
+ public:
+  PrimExpr lower_bound;
+  PrimExpr upper_bound;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("lower_bound", &lower_bound);
+    v->Visit("upper_bound", &upper_bound);
+  }
+
+  TVM_DECLARE_FINAL_OBJECT_INFO(SymbolicBoundNode, Object);
+};
+
+class SymbolicBound : public ObjectRef {
+ public:
+  TVM_DLL SymbolicBound(PrimExpr lower_bound, PrimExpr upper_bound);
+
+  static const PrimExpr kUnknown;
+
+  TVM_DEFINE_OBJECT_REF_METHODS(SymbolicBound, ObjectRef, SymbolicBoundNode);
+};
+
+/*!
+ * \brief Analyzer to get constant integer bound over expression.
+ */
+class SymbolicBoundAnalyzer {
+ public:
+  /*!
+   * \brief analyze the expr
+   * \param expr The expression of interest.
+   * \return the result of the analysis.
+   */
+  SymbolicBound operator()(const PrimExpr& expr);
+
+  /*!
+   * \brief analyze the expr with the intermediate memorized to avoid redundant computation
+   * \param expr The expression of interest.
+   * \param bound The lookup table to store the intermediate results
+   * \return the result of the analysis.
+   */
+//  SymbolicBound operator()(const PrimExpr& expr,
+//                           std::unordered_map<const PrimExprNode*, ConstIntBound>* bound);
+
+  /*!
+   * \brief Update constant int bound information of var.
+   *
+   * \param var The variable of interest.
+   * \param info The bound information.
+   * \param override Whether do we allow override of existing information.
+   */
+  void Update(const Var& var,
+              const SymbolicBound& info,
+              bool override = false);
+  /*!
+   * \brief Bind variable to a range.
+   *
+   * \param var The variable.
+   * \param range The range we bind to.
+   */
+  void Bind(const Var& var, const Range& range);
+
+ private:
+  friend class Analyzer;
+  //friend class ConstraintContext;
+  explicit SymbolicBoundAnalyzer(Analyzer* parent);
+  ~SymbolicBoundAnalyzer();
+//  /*!
+//   * \brief Update the internal state to enter constraint.
+//   * \param constraint A constraint expression.
+//   *
+//   * \return an exit function that must be called to cleanup the constraint can be nullptr.
+//   */
+//  std::function<void()> EnterConstraint(const PrimExpr& constraint);
+  struct Entry;
+  class Impl;
+  /*! \brief Internal impl */
+  Impl* impl_;
+};
+
+
 /*!
  * \brief Range of a linear integer function.
  *  Use to do specify the possible index values.
@@ -393,6 +473,8 @@ class TVM_DLL Analyzer {
   Analyzer& operator=(const Analyzer&) = delete;
   /*! \brief sub-analyzer: const integer bound */
   ConstIntBoundAnalyzer const_int_bound;
+
+  SymbolicBoundAnalyzer symbolic_bound;
   /*! \brief sub-analyzer: modular set */
   ModularSetAnalyzer modular_set;
   /*! \brief sub-analyzer rewrite simplify */
@@ -442,6 +524,8 @@ class TVM_DLL Analyzer {
    * \note Analyzer will call into sub-analyzers to get the result.
    */
   bool CanProveGreaterEqual(const PrimExpr& expr, int64_t lower_bound);
+
+  bool CanProveGreater(const PrimExpr& expr, int64_t lower_bound);
   /*!
    * \brief Whether can we prove condition.
    *

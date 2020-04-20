@@ -110,6 +110,10 @@ class RewriteSimplifier::Impl : public IRMutatorWithAnalyzer {
   bool CanProveGreaterEqual(const PrimExpr& x, int64_t val) {
     return analyzer_->CanProveGreaterEqual(x, val);
   }
+  // Whether x > val
+  bool CanProveGreater(const PrimExpr& x, int64_t val) {
+    return analyzer_->CanProveGreater(x, val);
+  }
   // Whether x == val
   bool CanProveEqual(const PrimExpr& x, int64_t val) {
     // TODO(tqchen) refer back to super-analyzer.
