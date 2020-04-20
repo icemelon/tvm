@@ -30,6 +30,7 @@ namespace arith {
 
 Analyzer::Analyzer()
     : const_int_bound(this),
+      symbolic_bound(this),
       modular_set(this),
       rewrite_simplify(this),
       canonical_simplify(this),
@@ -43,6 +44,7 @@ void Analyzer::Bind(const Var& var, const PrimExpr& expr, bool override) {
 
   this->const_int_bound.Update(var, this->const_int_bound(new_expr), override);
   this->modular_set.Update(var, this->modular_set(new_expr), override);
+  this->symbolic_bound.Update(var, this->symbolic_bound(new_expr), override);
   this->rewrite_simplify.Update(var, new_expr, override);
   this->canonical_simplify.Update(var, new_expr, override);
 }
@@ -53,6 +55,7 @@ void Analyzer::Bind(const Var& var, const Range& range, bool override) {
     this->Bind(var, range->min, override);
   } else {
     this->const_int_bound.Bind(var, range, override);
+    this->symbolic_bound.Bind(var, range, override);
   }
   // skip modular_set
   // skip rewrite simplify
@@ -89,6 +92,23 @@ bool Analyzer::CanProveGreaterEqual(const PrimExpr& expr, int64_t lower_bound) {
   }
   auto bd = this->const_int_bound(this->rewrite_simplify(expr));
   if (bd->min_value >= lower_bound) return true;
+  auto sbd = this->symbolic_bound(this->rewrite_simplify(expr));
+  if (const auto* lb = sbd->lower_bound.as<IntImmNode>()) {
+    return (lb->value >= lower_bound);
+  }
+  return false;
+}
+
+bool Analyzer::CanProveGreater(const PrimExpr& expr, int64_t lower_bound) {
+  if (const auto* ptr = expr.as<tir::IntImmNode>()) {
+    return ptr->value > lower_bound;
+  }
+  auto bd = this->const_int_bound(this->rewrite_simplify(expr));
+  if (bd->min_value > lower_bound) return true;
+  auto sbd = this->symbolic_bound(this->rewrite_simplify(expr));
+  if (const auto* lb = sbd->lower_bound.as<IntImmNode>()) {
+    return (lb->value > lower_bound);
+  }
   return false;
 }
 
