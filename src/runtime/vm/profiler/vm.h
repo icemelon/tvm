@@ -25,7 +25,10 @@
 #ifndef TVM_RUNTIME_VM_PROFILER_VM_H_
 #define TVM_RUNTIME_VM_PROFILER_VM_H_
 
+#include <tvm/node/reflection.h>
+#include <tvm/ir/expr.h>
 #include <tvm/runtime/vm.h>
+#include <tvm/runtime/object.h>
 
 #include <memory>
 #include <string>
@@ -35,6 +38,71 @@
 namespace tvm {
 namespace runtime {
 namespace vm {
+
+class ProfileRecordObj : public Object {
+ public:
+  int32_t opcode;
+  double duration;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("opcode", &opcode);
+    v->Visit("duration", &duration);
+  }
+
+  static constexpr const uint32_t _type_index = TypeIndex::kDynamic;
+  static constexpr const uint32_t _type_child_slots = 2;
+  static constexpr const char* _type_key = "vm_profiler.ProfileRecord";
+  TVM_DECLARE_BASE_OBJECT_INFO(ProfileRecordObj, Object);
+};
+
+class ProfileRecord : public ObjectRef {
+ public:
+  TVM_DEFINE_OBJECT_REF_METHODS(ProfileRecord, ObjectRef, ProfileRecordObj);
+};
+
+class KernelRecordObj : public ProfileRecordObj {
+ public:
+  std::string kernel_name;
+  int32_t num_inputs;
+  int32_t num_outputs;
+  Array<Array<Integer>> output_shapes;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("kernel_name", &kernel_name);
+    v->Visit("num_inputs", &num_inputs);
+    v->Visit("num_outputs", &num_outputs);
+    v->Visit("output_shapes", &output_shapes);
+    ProfileRecordObj::VisitAttrs(v);
+  }
+
+  static constexpr const uint32_t _type_index = TypeIndex::kDynamic;
+  static constexpr const char* _type_key = "vm_profiler.KernelRecord";
+  TVM_DECLARE_FINAL_OBJECT_INFO(KernelRecordObj, ProfileRecordObj);
+};
+
+class KernelRecord : public ProfileRecord {
+ public:
+  TVM_DEFINE_OBJECT_REF_METHODS(KernelRecord, ProfileRecord, KernelRecordObj);
+};
+
+class AllocStorageRecordObj : public ProfileRecordObj {
+ public:
+  int64_t nbytes;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("nbytes", &nbytes);
+    ProfileRecordObj::VisitAttrs(v);
+  }
+
+  static constexpr const uint32_t _type_index = TypeIndex::kDynamic;
+  static constexpr const char* _type_key = "vm_profiler.AllocStorageRecord";
+  TVM_DECLARE_FINAL_OBJECT_INFO(AllocStorageRecordObj, ProfileRecordObj);
+};
+
+class AllocStorageRecord : public ProfileRecord {
+ public:
+  TVM_DEFINE_OBJECT_REF_METHODS(AllocStorageRecord, ProfileRecord, AllocStorageRecordObj);
+};
 
 class VirtualMachineDebug : public VirtualMachine {
  public:
@@ -51,9 +119,10 @@ class VirtualMachineDebug : public VirtualMachine {
   void InvokePacked(Index packed_index, const PackedFunc& func, Index arg_count,
                     Index output_size, const std::vector<ObjectRef>& args) final;
 
+  void AllocateStorage(const Instruction& instr) final;
+
   std::unordered_map<Index, std::string> packed_index_map_;
-  std::unordered_map<Index, std::vector<double>> op_durations_;
-  std::unordered_map<Index, int> op_invokes_;
+  Array<ProfileRecord> profile_records_;
 };
 
 }  // namespace vm

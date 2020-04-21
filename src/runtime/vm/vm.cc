@@ -835,6 +835,17 @@ inline int32_t VirtualMachine::LoadScalarInt(Index r) const {
   return result;
 }
 
+inline void VirtualMachine::AllocateStorage(const Instruction& instr) {
+  auto size = LoadScalarInt(instr.alloc_storage.allocation_size);
+  auto alignment = LoadScalarInt(instr.alloc_storage.alignment);
+  DLOG(INFO) <<
+      "AllocStorage: allocation_size=" << size <<
+      "alignment=" << alignment <<
+      "dtype_hint=" << DLDataType2String(instr.alloc_storage.dtype_hint);
+  auto storage = make_storage(size, alignment, instr.alloc_storage.dtype_hint, ctxs_[0]);
+  WriteRegister(instr.dst, storage);
+}
+
 void VirtualMachine::RunLoop() {
   CHECK(this->exec_);
   CHECK(this->code_);
@@ -1019,16 +1030,7 @@ void VirtualMachine::RunLoop() {
         goto main_loop;
       }
       case Opcode::AllocStorage: {
-        auto size = LoadScalarInt(instr.alloc_storage.allocation_size);
-        auto alignment = LoadScalarInt(instr.alloc_storage.alignment);
-
-        DLOG(INFO) <<
-          "AllocStorage: allocation_size=" << size <<
-          "alignment=" << alignment <<
-          "dtype_hint=" << DLDataType2String(instr.alloc_storage.dtype_hint);
-
-        auto storage = make_storage(size, alignment, instr.alloc_storage.dtype_hint, ctxs_[0]);
-        WriteRegister(instr.dst, storage);
+        AllocateStorage(instr);
         pc_++;
         goto main_loop;
       }
