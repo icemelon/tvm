@@ -40,55 +40,19 @@ namespace tvm {
 namespace runtime {
 namespace vm {
 
+TVM_REGISTER_NODE_TYPE(ProfileRecordObj);
+TVM_REGISTER_NODE_TYPE(KernelRecordObj);
+TVM_REGISTER_NODE_TYPE(AllocStorageRecordObj);
+
 PackedFunc VirtualMachineDebug::GetFunction(
     const std::string& name, const ObjectPtr<Object>& sptr_to_self) {
-  if (name == "get_stat") {
+  if (name == "get_profile_result") {
     return PackedFunc([sptr_to_self, this](TVMArgs args, TVMRetValue* rv) {
-      CHECK_EQ(args.size(), 1U);
-      std::vector<std::pair<Index, double>> op_acc_time;
-      for (auto kv : op_durations_) {
-        auto val = std::make_pair(
-            kv.first, std::accumulate(kv.second.begin(), kv.second.end(), 0.0));
-        op_acc_time.push_back(val);
-      }
-      bool sort_by_time = args[0];
-      if (sort_by_time) {
-        auto comp = [](const std::pair<Index, double>& lhs,
-                       const std::pair<Index, double>& rhs) {
-          return lhs.second > rhs.second;
-        };
-        std::sort(op_acc_time.begin(), op_acc_time.end(), comp);
-      }
-      double total_duration = 0.0;
-      int64_t total_packed_funcs = 0;
-      std::ostringstream os;
-      os << std::setw(30) << std::left << "#OpName"
-         << "\t" << std::setw(10) << std::left << "#InvokeCount"
-         << "\t"
-         << "#Duration(us): Sum/Mean/Min/Max" << std::endl;
-
-      for (auto kv : op_acc_time) {
-        auto vals = op_durations_[kv.first];
-        auto sum = kv.second;
-        auto mean = sum / static_cast<double>(vals.size());
-        auto min_value = *std::min_element(vals.begin(), vals.end());
-        auto max_value = *std::max_element(vals.begin(), vals.end());
-
-        os << std::setw(30) << std::left << packed_index_map_[kv.first] << "\t"
-           << std::setw(10) << std::left << op_invokes_[kv.first] << "\t"
-           <<  sum << "/" << mean << "/" << min_value << "/" << max_value << std::endl;
-
-        total_duration += sum;
-        total_packed_funcs += op_invokes_[kv.first];
-      }
-      os << "\nTotal Duration: " << total_duration << " us.\t"
-         << "Total Packed Functions: " << total_packed_funcs << std::endl;
-      *rv = os.str();
+      *rv = profile_records_;
     });
   } else if (name == "reset") {
     return PackedFunc([sptr_to_self, this](TVMArgs args, TVMRetValue* rv) {
-      op_durations_.clear();
-      op_invokes_.clear();
+      profile_records_ = Array<ProfileRecord>();
     });
   } else {
     return VirtualMachine::GetFunction(name, sptr_to_self);
@@ -100,7 +64,6 @@ void VirtualMachineDebug::LoadExecutable(const Executable* exec) {
   CHECK(exec_);
   for (auto kv : exec_->primitive_map) {
     packed_index_map_[kv.second] = kv.first;
-    op_invokes_[kv.second] = 0;
   }
 }
 
@@ -123,8 +86,47 @@ void VirtualMachineDebug::InvokePacked(Index packed_index,
                                                                  op_begin)
           .count();
 
-  op_durations_[packed_index].push_back(op_duration * 1e6);
-  op_invokes_[packed_index] += 1;
+  auto n = make_object<KernelRecordObj>();
+  n->opcode = static_cast<int32_t>(Opcode::InvokePacked);
+  n->duration = op_duration;
+  n->kernel_name = packed_index_map_[packed_index];
+  n->num_inputs = arg_count;
+  n->num_outputs = 0;
+
+  auto add_out_shape = [&n](NDArray arr) {
+    ++n->num_outputs;
+    Array<Integer> shape;
+    for (auto dim : arr.Shape()) {
+      shape.push_back(dim);
+    }
+    n->output_shapes.push_back(shape);
+  };
+
+  for (int i = arg_count - output_size; i < arg_count; ++i) {
+    if (const auto* adt = args[i].as<ADTObj>()) {
+      for (size_t j = 0; j < adt->size; ++j) {
+        auto obj = (*adt)[j];
+        add_out_shape(Downcast<NDArray>(obj));
+      }
+    } else {
+      add_out_shape(Downcast<NDArray>(args[i]));
+    }
+  }
+  profile_records_.push_back(KernelRecord(n));
+}
+
+void VirtualMachineDebug::AllocateStorage(const Instruction& instr) {
+  auto begin = std::chrono::high_resolution_clock::now();
+  VirtualMachine::AllocateStorage(instr);
+  auto end = std::chrono::high_resolution_clock::now();
+  double duration =
+      std::chrono::duration_cast<std::chrono::duration<double> >(end - begin).count();
+
+  auto n = make_object<AllocStorageRecordObj>();
+  n->opcode = static_cast<int32_t>(Opcode::AllocStorage);
+  n->duration = duration;
+  n->nbytes = LoadScalarInt(instr.alloc_storage.allocation_size);
+  profile_records_.push_back(AllocStorageRecord(n));
 }
 
 runtime::Module CreateVirtualMachineDebug(const Executable* exec) {

@@ -769,6 +769,8 @@ class VirtualMachine : public runtime::ModuleNode {
                             Index output_size,
                             const std::vector<ObjectRef>& args);
 
+  virtual void AllocateStorage(const Instruction& instr);
+
   /*!
    * \brief Initialize the virtual machine for a set of contexts.
    * \param contexts The set of TVM contexts.
