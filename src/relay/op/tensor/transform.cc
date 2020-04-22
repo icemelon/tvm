@@ -1848,8 +1848,14 @@ bool StridedSliceRel(const Array<Type>& types,
     // Require concrete integer as symbolic inference of min/max
     // can get complicated and not very helpful.
     const int64_t* p_dim_size = tir::as_const_int(dshape[i]);
-    CHECK(p_dim_size)
-        << "strided_slice requires sliced dimension to be concrete int";
+    // CHECK(p_dim_size)
+    //     << "strided_slice requires sliced dimension to be concrete int";
+    if (p_dim_size == nullptr) {
+      CHECK_EQ(stride_v, 1);
+      CHECK_GE(end_v, 0);
+      oshape[i] = tir::make_const(dshape[i].dtype(), end_v - begin_v);
+      continue;
+    }
     int64_t dim_size = p_dim_size[0];
     begin_v = (begin_v < 0) ? dim_size + begin_v : begin_v;
     end_v = (end_v < 0) ? dim_size + end_v : end_v;
