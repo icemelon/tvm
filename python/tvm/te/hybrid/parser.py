@@ -503,7 +503,7 @@ class HybridParser(ast.NodeVisitor):
 
         if len(iter_res) == 5:
             _, low, ext, step, _ = iter_res
-            low = self.analzyer.simplify(low)
+            low = self.analyzer.simplify(low)
             ext = self.analyzer.simplify(ext)
             step = self.analyzer.simplify(step)
             _internal_assert(isinstance(low, _expr.ConstExpr) and
