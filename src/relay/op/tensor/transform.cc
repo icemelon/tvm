@@ -22,8 +22,9 @@
  * \brief Transform operators.
  */
 #include <tvm/relay/op.h>
-#include <tvm/ir/error.h>
 #include <tvm/relay/attrs/transform.h>
+#include <tvm/ir/error.h>
+#include <tvm/arith/analyzer.h>
 #include <tvm/tir/op.h>
 #include <tvm/tir/expr.h>
 #include <tvm/tir/data_layout.h>
@@ -622,6 +623,8 @@ bool ReshapeRel(const Array<Type>& types,
         infer_dim = indexdiv(infer_dim, oshape[i]);
       }
     }
+    tvm::arith::Analyzer ana;
+    infer_dim = ana.Simplify(infer_dim);
     oshape.Set(infer_idx, infer_dim);
   }
 
