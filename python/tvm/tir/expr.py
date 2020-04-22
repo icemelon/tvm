@@ -998,7 +998,7 @@ class Let(PrimExprWithOp):
 
 
 @tvm._ffi.register_object
-class Any(PrimExpr):
+class Any(PrimExprWithOp):
     """Any node.
     """
     def __init__(self):
