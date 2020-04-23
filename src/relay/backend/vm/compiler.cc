@@ -869,6 +869,7 @@ IRModule VMCompiler::OptimizeModule(const IRModule& mod, const TargetsMap& targe
   pass_seqs.push_back(transform::EtaExpand(
     /* expand_constructor */ true, /* expand_global_var */ false));
 
+  pass_seqs.push_back(transform::SimplifyExpr());
   pass_seqs.push_back(transform::SimplifyInference());
   PackedFunc fskip = PackedFunc([](TVMArgs args, TVMRetValue* rv) {
     Expr expr = args[0];
@@ -900,7 +901,6 @@ IRModule VMCompiler::OptimizeModule(const IRModule& mod, const TargetsMap& targe
   }
 
   pass_seqs.push_back(transform::FoldConstant());
-
   pass_seqs.push_back(transform::FuseOps());
   pass_seqs.push_back(transform::ToANormalForm());
   pass_seqs.push_back(transform::LambdaLift());

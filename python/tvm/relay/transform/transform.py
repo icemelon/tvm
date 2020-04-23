@@ -879,3 +879,6 @@ def SimplifyFCTranspose(target_weight_name):
         The registered SimplifyFCTranspose pass.
     """
     return _ffi_api.SimplifyFCTranspose(target_weight_name)
+
+def SimplifyExpr():
+    return _ffi_api.SimplifyExpr()

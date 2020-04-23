@@ -172,6 +172,12 @@ TVM_DLL Pass ToGraphNormalForm();
 TVM_DLL Pass PartialEval();
 
 /*!
+ * \brief Simplify expressions in the function. For example, merge two consecutive
+ * reshape ops.
+ */
+TVM_DLL Pass SimplifyExpr();
+
+/*!
  * \brief Simplify certain operators during inference. For example, batch norm
  * will be unpacked into a number of simplified operators.
  *
