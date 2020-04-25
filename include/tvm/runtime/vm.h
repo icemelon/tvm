@@ -113,6 +113,7 @@ enum class Opcode {
   LoadConsti = 14U,
   Fatal = 15U,
   AllocStorage = 16U,
+  ReshapeTensor = 17U,
 };
 
 /*! \brief A single virtual machine instruction.
@@ -240,6 +241,10 @@ struct Instruction {
       /*! \brief The hint of the dtype. */
       DLDataType dtype_hint;
     } alloc_storage;
+    struct /* ReshapeTensor Operands */ {
+      RegName tensor;
+      RegName new_shape;
+    };
   };
 
   /*!
@@ -381,6 +386,8 @@ struct Instruction {
    */
   static Instruction AllocStorage(RegName size, RegName alignment,
                                   DLDataType dtype_hint, RegName dst);
+
+  static Instruction ReshapeTensor(RegName tensor, RegName new_shape, RegName dst);
 
   Instruction();
   Instruction(const Instruction& instr);
