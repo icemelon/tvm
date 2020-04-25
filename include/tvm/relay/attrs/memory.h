@@ -95,6 +95,18 @@ struct ShapeFuncAttrs : public tvm::AttrsNode<ShapeFuncAttrs> {
   }
 };
 
+/*!
+ * \brief
+ */
+struct ReshapeTensorAttrs : public tvm::AttrsNode<ReshapeTensorAttrs> {
+  Array<PrimExpr> new_shape;
+
+  TVM_DECLARE_ATTRS(ReshapeTensorAttrs, "relay.attrs.ReshapeTensorAttrs") {
+    TVM_ATTR_FIELD(new_shape)
+      .describe("The new shape of output tensor");
+  }
+};
+
 }  // namespace relay
 }  // namespace tvm
 #endif  // TVM_RELAY_ATTRS_MEMORY_H_

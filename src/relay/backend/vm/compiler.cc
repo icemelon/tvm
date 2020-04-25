@@ -275,6 +275,7 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
       case Opcode::AllocStorage:
       case Opcode::Move:
       case Opcode::InvokeClosure:
+      case Opcode::ReshapeTensor:
         last_register_ = instr.dst;
         break;
       case Opcode::InvokePacked:
@@ -577,7 +578,18 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
       }).Match("memory.kill",
         [](const Array<Expr>& args, const Attrs& attrs, const Array<Type>& type_arg) {
           LOG(FATAL) << "memory.kill is not yet supported";
-      });
+      }).Match("memory.reshape_tensor",
+        [this](const Array<Expr>& args, const Attrs& attrs, const Array<Type>& type_arg) {
+          CHECK_EQ(args.size(), 2u);
+          this->VisitExpr(args[0]);
+          auto tensor_reg = last_register_;
+          this->VisitExpr(args[1]);
+          auto shape_reg = last_register_;
+
+          auto reshape_attrs = attrs.as<ReshapeTensorAttrs>();
+          CHECK(reshape_attrs != nullptr) << "must be the reshape tensor attrs";
+          Emit(Instruction::ReshapeTensor(tensor_reg, shape_reg, NewRegister()));
+        });
       matcher(GetRef<Call>(call_node));
       return;
     }

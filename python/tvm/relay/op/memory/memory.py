@@ -101,6 +101,9 @@ def shape_func(func, inputs, outputs, dependent=False):
     """
     return _make.shape_func(func, inputs, outputs, dependent)
 
+def reshape_tensor(data_tensor, shape_tensor, new_shape):
+    return _make.reshape_tensor(data_tensor, shape_tensor, new_shape)
+
 def flatten_tuple_type(ty):
     """Return a sequence of the types contained in the tuple type in order.
 

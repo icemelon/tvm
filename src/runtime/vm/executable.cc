@@ -428,6 +428,11 @@ VMInstructionSerializer SerializeInstruction(const Instruction& instr) {
       fields.push_back(instr.pc_offset);
       break;
     }
+    case Opcode::ReshapeTensor: {
+      // Number of fields = 3
+      fields.assign({instr.tensor, instr.new_shape, instr.dst});
+      break;
+    }
     default:
       LOG(FATAL) << "Invalid opcode" << static_cast<int>(instr.op);
       break;
@@ -698,6 +703,12 @@ Instruction DeserializeInstruction(const VMInstructionSerializer& instr) {
       // Number of fields = 1
       DCHECK_EQ(instr.fields.size(), 1U);
       return Instruction::Goto(instr.fields[0]);
+    }
+    case Opcode::ReshapeTensor: {
+      // Number of fields = 3
+      DCHECK_EQ(instr.fields.size(), 3U);
+      return Instruction::ReshapeTensor(instr.fields[0], instr.fields[1],
+                                        instr.fields[2]);
     }
     default:
       LOG(FATAL) << "Invalid opcode" << instr.opcode;

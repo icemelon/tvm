@@ -144,6 +144,10 @@ Instruction::Instruction(const Instruction& instr) {
     case Opcode::AllocStorage:
       this->alloc_storage = instr.alloc_storage;
       return;
+    case Opcode::ReshapeTensor:
+      this->tensor = instr.tensor;
+      this->new_shape = instr.new_shape;
+      return;
     default:
       std::ostringstream out;
       out << "Invalid instruction " << static_cast<int>(instr.op);
@@ -236,6 +240,10 @@ Instruction& Instruction::operator=(const Instruction& instr) {
     case Opcode::AllocStorage:
       this->alloc_storage = instr.alloc_storage;
       return *this;
+    case Opcode::ReshapeTensor:
+      this->tensor = instr.tensor;
+      this->new_shape = instr.new_shape;
+      return *this;
     default:
       std::ostringstream out;
       out << "Invalid instruction " << static_cast<int>(instr.op);
@@ -256,6 +264,7 @@ Instruction::~Instruction() {
     case Opcode::LoadConsti:
     case Opcode::AllocStorage:
     case Opcode::Fatal:
+    case Opcode::ReshapeTensor:
       return;
     case Opcode::AllocTensor:
       delete this->alloc_tensor.shape;
@@ -467,6 +476,16 @@ Instruction Instruction::Move(RegName src, RegName dst) {
   return instr;
 }
 
+Instruction Instruction::ReshapeTensor(RegName tensor, RegName new_shape,
+                                       RegName dst) {
+  Instruction instr;
+  instr.op = Opcode::ReshapeTensor;
+  instr.dst = dst;
+  instr.tensor = tensor;
+  instr.new_shape = new_shape;
+  return instr;
+}
+
 void DLDatatypePrint(std::ostream& os, const DLDataType& dtype) {
   switch (dtype.code) {
     case kDLInt:
@@ -594,6 +613,12 @@ void InstructionPrint(std::ostream& os, const Instruction& instr) {
         instr.alloc_storage.allocation_size << " $" <<
         instr.alloc_storage.alignment << " " <<
         DLDataType2String(instr.alloc_storage.dtype_hint);
+      break;
+    }
+    case Opcode::ReshapeTensor: {
+      os << "reshape_tensor $" << instr.dst
+         << " $" << instr.tensor
+         << " $" << instr.new_shape;
       break;
     }
     default:
@@ -996,7 +1021,7 @@ void VirtualMachine::RunLoop() {
         NDArray shape_tensor = shape_arr.CopyTo(cpu_ctx);
         const DLTensor* dl_tensor = shape_tensor.operator->();
         CHECK_EQ(dl_tensor->dtype.code, 0u);
-        CHECK_LE(dl_tensor->dtype.bits, 64);
+        CHECK_EQ(dl_tensor->dtype.bits, 64);
         int64_t* dims = reinterpret_cast<int64_t*>(dl_tensor->data);
         auto num_dims = shape_tensor->shape[0];
         auto shape = std::vector<int64_t>(num_dims);
@@ -1049,6 +1074,30 @@ void VirtualMachine::RunLoop() {
           goto main_loop;
         }
       }
+      case Opcode::ReshapeTensor: {
+        DLContext cpu_ctx;
+        cpu_ctx.device_type = kDLCPU;
+        cpu_ctx.device_id = 0;
+
+        auto tensor_obj = ReadRegister(instr.tensor);
+        NDArray tensor_arr = Downcast<NDArray>(tensor_obj);
+
+        auto shape_obj = ReadRegister(instr.new_shape);
+        NDArray shape_tensor = Downcast<NDArray>(shape_obj).CopyTo(cpu_ctx);
+        const DLTensor* dl_tensor = shape_tensor.operator->();
+        CHECK_EQ(dl_tensor->dtype.code, 0u);
+        CHECK_EQ(dl_tensor->dtype.bits, 64);
+        int64_t* dims = reinterpret_cast<int64_t*>(dl_tensor->data);
+        int64_t ndim = shape_tensor->shape[0];
+        std::vector<int64_t> shape(dims, dims + ndim);
+
+        auto out_tensor = tensor_arr.CreateView(shape, tensor_arr->dtype);
+        WriteRegister(instr.dst, out_tensor);
+        pc_++;
+        goto main_loop;
+      }
+      default:
+        LOG(FATAL) << "Unknown instruction opcode: " << int(instr.op);
     }
   }
 }
