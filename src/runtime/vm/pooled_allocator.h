@@ -24,12 +24,12 @@
 #define TVM_RUNTIME_VM_POOLED_ALLOCATOR_H_
 
 #include <tvm/runtime/device_api.h>
+#include <tvm/runtime/memory_manager.h>
 #include <atomic>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
 
-#include "memory_manager.h"
 
 namespace tvm {
 namespace runtime {

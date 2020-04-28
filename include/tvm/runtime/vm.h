@@ -28,6 +28,7 @@
 #include <tvm/runtime/memory.h>
 #include <tvm/runtime/packed_func.h>
 #include <tvm/runtime/registry.h>
+#include <tvm/runtime/memory_manager.h>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -803,6 +804,8 @@ class VirtualMachine : public runtime::ModuleNode {
    * object to avoid rellocation of constants during inference.
    */
   std::vector<ObjectRef> const_pool_;
+
+  std::vector<Allocator*> allocators_;
 };
 
 }  // namespace vm

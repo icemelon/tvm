@@ -24,9 +24,8 @@
 #define TVM_RUNTIME_VM_NAIVE_ALLOCATOR_H_
 
 #include <tvm/runtime/device_api.h>
+#include <tvm/runtime/memory_manager.h>
 #include <atomic>
-
-#include "memory_manager.h"
 
 namespace tvm {
 namespace runtime {
