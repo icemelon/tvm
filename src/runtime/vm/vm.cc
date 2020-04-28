@@ -36,7 +36,6 @@
 #include <stdexcept>
 #include <vector>
 
-#include "memory_manager.h"
 #include "naive_allocator.h"
 
 using namespace tvm::runtime;
@@ -52,12 +51,9 @@ VMClosure::VMClosure(size_t func_index, std::vector<ObjectRef> free_vars) {
   data_ = std::move(ptr);
 }
 
-inline Storage make_storage(size_t size, size_t alignment, DLDataType dtype_hint, TVMContext ctx) {
+inline Storage make_storage(size_t size, size_t alignment, DLDataType dtype_hint, Allocator* alloc) {
   // We could put cache in here, from ctx to storage allocator.
   auto storage_obj = SimpleObjAllocator().make_object<StorageObj>();
-  auto alloc = MemoryManager::Global()->GetAllocator(ctx);
-  DCHECK(alloc != nullptr)
-    << "allocator must not null";
   storage_obj->buffer = alloc->Alloc(size, alignment, dtype_hint);
   return Storage(storage_obj);
 }
@@ -762,8 +758,8 @@ ObjectRef VirtualMachine::Invoke(const VMFunction& func, const std::vector<Objec
   InvokeGlobal(func, args);
   RunLoop();
   // TODO(wweic) ctx could be obtained from the ctxs list.
-  auto alloc = MemoryManager::Global()->GetAllocator(ctxs_[0]);
-  DLOG(INFO) << "Memory used: " << alloc->UsedMemory() << " B";
+  // auto alloc = MemoryManager::Global()->GetAllocator(ctxs_[0]);
+  // DLOG(INFO) << "Memory used: " << alloc->UsedMemory() << " B";
   return return_register_;
 }
 
@@ -834,6 +830,12 @@ void VirtualMachine::LoadExecutable(const Executable* exec) {
 
 void VirtualMachine::Init(const std::vector<TVMContext>& ctxs) {
   ctxs_ = ctxs;
+  for (auto ctx : ctxs) {
+    auto alloc = MemoryManager::Global()->GetAllocator(ctx);
+    DCHECK(alloc != nullptr)
+        << "allocator must not null";
+    allocators_.push_back(alloc);
+  }
 }
 
 inline void VirtualMachine::WriteRegister(Index r, const ObjectRef& val) {
@@ -867,7 +869,7 @@ inline void VirtualMachine::AllocateStorage(const Instruction& instr) {
       "AllocStorage: allocation_size=" << size <<
       "alignment=" << alignment <<
       "dtype_hint=" << DLDataType2String(instr.alloc_storage.dtype_hint);
-  auto storage = make_storage(size, alignment, instr.alloc_storage.dtype_hint, ctxs_[0]);
+  auto storage = make_storage(size, alignment, instr.alloc_storage.dtype_hint, allocators_[0]);
   WriteRegister(instr.dst, storage);
 }
 
