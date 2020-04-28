@@ -47,7 +47,7 @@ def schedule_injective_from_existing(sch, out):
     if len(sch[out].op.axis) >= 1:
         l = sch[out].op.axis[-1]
         _, li = sch[out].split(l, factor=16)
-        sch[out].vectorize(li)
+        # sch[out].vectorize(li)
     return sch
 
 def schedule_injective(outs):
