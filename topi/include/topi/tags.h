@@ -33,6 +33,7 @@ constexpr auto kInjective = "injective";
 constexpr auto kCommReduce = "comm_reduce";
 constexpr auto kCommReduceIdx = "comm_reduce_idx";
 constexpr auto kBroadcast = "broadcast";
+constexpr auto kAutoBroadcast = "auto_broadcast";
 constexpr auto kMatMul = "matmul";
 constexpr auto kConv2dNCHW = "conv2d_nchw";
 constexpr auto kConv2dHWCN = "conv2d_hwcn";

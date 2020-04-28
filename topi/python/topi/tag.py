@@ -45,6 +45,7 @@ When we use composed tags, we must always put generic tag in the first location.
 
 ELEMWISE = "elemwise"
 BROADCAST = "broadcast"
+AUTO_BROADCAST = "auto_broadcast"
 INJECTIVE = "injective"
 COMM_REDUCE = "comm_reduce"
 COMM_REDUCE_IDX = "comm_reduce_idx"
@@ -63,9 +64,11 @@ def is_broadcast(tag):
     ret : bool
         Whether a tag is broadcast
     """
-    if tag in (ELEMWISE, BROADCAST):
+    if tag in (ELEMWISE, BROADCAST, AUTO_BROADCAST):
         return True
-    return tag.startswith(ELEMWISE) or tag.startswith(BROADCAST)
+    return (tag.startswith(ELEMWISE) or
+            tag.startswith(BROADCAST) or
+            tag.startswith(AUTO_BROADCAST))
 
 
 def is_injective(tag):
@@ -81,8 +84,9 @@ def is_injective(tag):
     ret : bool
         Whether a tag is injective
     """
-    if tag in (ELEMWISE, BROADCAST, INJECTIVE):
+    if tag in (ELEMWISE, BROADCAST, AUTO_BROADCAST, INJECTIVE):
         return True
     return (tag.startswith(ELEMWISE) or
             tag.startswith(BROADCAST) or
+            tag.startswith(AUTO_BROADCAST) or
             tag.startswith(INJECTIVE))

@@ -31,7 +31,7 @@ from tvm.te import schedule
 from tvm import target as _target
 
 
-def get_binds(args, compact=False, binds=None):
+def get_binds(args, compact=False, binds=None, auto_broadcast=False):
     """Internal function to get binds and arg_list given arguments.
 
     Parameters
@@ -60,8 +60,11 @@ def get_binds(args, compact=False, binds=None):
     arg_list = []
     for x in args:
         if isinstance(x, tensor.Tensor):
-            any_dim = any(isinstance(i, tvm.tir.Var) for i in x.shape)
-            buffer_type = "auto_broadcast" if any_dim and not compact else ""
+            buffer_type = ""
+            if auto_broadcast:
+                any_dim = any(isinstance(i, tvm.tir.Var) for i in x.shape)
+                if any_dim and not compact:
+                    buffer_type = "auto_broadcast"
             if x not in binds:
                 buf = tvm.tir.decl_buffer(
                     x.shape,
@@ -111,7 +114,11 @@ def form_irmodule(sch, args, name, binds):
     stmt = schedule.ScheduleOps(sch, bounds)
 
     compact = schedule.VerifyCompactBuffer(stmt)
-    binds, arg_list = get_binds(args, compact, binds)
+    has_auto_bcast = False
+    for stage in sch.stages:
+        if "auto_broadcast" in stage.op.tag:
+            has_auto_bcast = True
+    binds, arg_list = get_binds(args, compact, binds, has_auto_bcast)
 
     stmt = schedule.SchedulePostProcRewriteForTensorCore(stmt, sch, binds)
     func = schedule.SchedulePostProcToPrimFunc(arg_list, stmt, binds)
