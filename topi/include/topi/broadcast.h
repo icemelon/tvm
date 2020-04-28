@@ -47,7 +47,7 @@ namespace topi {
 inline tvm::te::Tensor broadcast_to(const tvm::te::Tensor& t,
                                     const tvm::Array<tvm::PrimExpr>& output_shape,
                                     std::string name = "T_broadcast_to",
-                                    std::string tag = kBroadcast) {
+                                    std::string tag = kAutoBroadcast) {
   CHECK_GE(output_shape.size(), t->shape.size())
       << "Not a broadcast, output dimensionality smaller than input.\noutput: "
       << output_shape << "\nvs\ninput: " << t;
@@ -74,7 +74,7 @@ inline tvm::te::Tensor broadcast_to(const tvm::te::Tensor& t,
   inline tvm::te::Tensor Name(const tvm::te::Tensor& A,               \
                               const tvm::te::Tensor& B,               \
                               std::string name = "T_" #Name,          \
-                              std::string tag = kBroadcast) {         \
+                              std::string tag = kAutoBroadcast) {     \
     auto l = [](tvm::PrimExpr a, tvm::PrimExpr b) { ComputeRule; };   \
     return detail::WithBroadcast(l, A, B, name, tag);                 \
   }                                                                   \
