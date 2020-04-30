@@ -896,8 +896,10 @@ inline void VirtualMachine::AllocateStorage(const Instruction& instr) {
              << ", dtype_hint=" << DLDataType2String(instr.alloc_storage.dtype_hint)
              << ", device_type=" << instr.alloc_storage.device_type;
 
+  // TODO(zhiics) Need to use device_id to get allocator
   auto ctx = GetContext(instr.alloc_storage.device_type);
-  auto storage = make_storage(size, alignment, instr.alloc_storage.dtype_hint, ctx);
+  auto alloc = MemoryManager::Global()->GetAllocator(ctx);
+  auto storage = make_storage(size, alignment, instr.alloc_storage.dtype_hint, alloc);
   WriteRegister(instr.dst, storage);
 }
 
