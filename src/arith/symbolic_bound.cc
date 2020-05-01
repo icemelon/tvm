@@ -26,6 +26,7 @@
 #include <algorithm>
 #include "int_operator.h"
 #include "pattern_match.h"
+#include "ir_mutator_with_analyzer.h"
 
 namespace tvm {
 namespace arith {
@@ -56,10 +57,39 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
     p->stream << ']';
 });
 
+class RelaxRewriteSimplifier : public IRMutatorWithAnalyzer {
+ public:
+  using IRMutatorWithAnalyzer::VisitExpr_;
+
+  explicit RelaxRewriteSimplifier(Analyzer* parent)
+      : IRMutatorWithAnalyzer(parent) {}
+
+  PrimExpr VisitExpr_(const MulNode* op) override {
+    PrimExpr ret = IRMutatorWithAnalyzer::VisitExpr_(op);
+    PVar<PrimExpr> x;
+    PVar<IntImm> c1;
+    if ((floordiv(x, c1) * c1).Match(ret)) {
+      if (analyzer_->CanProveGreaterEqual(x.Eval(), 0) && c1.Eval()->value >= 0) {
+        return x.Eval();
+      }
+    }
+    return ret;
+  }
+};
+
 // internal entry for const int bound
 struct SymbolicBoundAnalyzer::Entry {
   PrimExpr lower_bound;
   PrimExpr upper_bound;
+
+  bool is_const() const {
+    if (const IntImmNode* lb = lower_bound.as<IntImmNode>()) {
+      if (const IntImmNode* ub = upper_bound.as<IntImmNode>()) {
+        return lb->value == ub->value;
+      }
+    }
+    return false;
+  }
 
   bool operator==(const Entry& other) const {
     return (StructuralEqual()(lower_bound, other.lower_bound) &&
@@ -115,10 +145,10 @@ class SymbolicBoundAnalyzer::Impl :
     Update(var, MakeBound(info->lower_bound, info->upper_bound), override);
   }
 
- // Override visitor behaviors
- Entry VisitExprDefault_(const Object* op) final {
-   return MakeBound(SymbolicBound::kUnknown, SymbolicBound::kUnknown);
- }
+  // Override visitor behaviors
+  Entry VisitExprDefault_(const Object* op) final {
+    return MakeBound(SymbolicBound::kUnknown, SymbolicBound::kUnknown);
+  }
 
   Entry VisitExpr(const PrimExpr& expr) final {
     Entry res = ExprFunctor::VisitExpr(expr);
@@ -164,25 +194,104 @@ class SymbolicBoundAnalyzer::Impl :
     return ret;
   }
 
-//  Entry VisitExpr_(const MulNode* op) final {
-//    Entry a = VisitExpr(op->a);
-//    Entry b = VisitExpr(op->b);
-//    Entry ret;
-//    ret.lower_bound = analyzer_->Simplify(a.lower_bound * b.lower_bound);
-//    ret.upper_bound = analyzer_->Simplify(a.upper_bound * b.upper_bound);
-//    return BinaryOpBoundry(a, b, InfAwareMul);
-//  }
-//
-//  Entry VisitExpr_(const DivNode* op) final {
-//    Entry a = VisitExpr(op->a);
-//    Entry b = VisitExpr(op->b);
-//    CHECK(!b.is_const(0)) << "divide by zero";
-//    // assume no division by 0
-//    if (b.min_value == 0) b.min_value = 1;
-//    if (b.max_value == 0) b.max_value = -1;
-//    return BinaryOpBoundry(a, b, InfAwareDiv);
-//  }
-//
+  Entry VisitExpr_(const MulNode* op) final {
+    Entry a = VisitExpr(op->a);
+    Entry b = VisitExpr(op->b);
+    Entry ret;
+    if (a.is_const()) {
+      auto a_val = Downcast<IntImm>(a.lower_bound);
+      if (a_val->value > 0) {
+        ret.lower_bound = analyzer_->Simplify(a_val * b.lower_bound);
+        ret.upper_bound = analyzer_->Simplify(a_val * b.upper_bound);
+      } else if (a_val->value < 0) {
+        ret.lower_bound = analyzer_->Simplify(a_val * b.upper_bound);
+        ret.upper_bound = analyzer_->Simplify(a_val * b.lower_bound);
+      } else {
+        ret.lower_bound = a_val;  // 0
+        ret.upper_bound = a_val;  // 0
+      }
+    } else if (b.is_const()) {
+      auto b_val = Downcast<IntImm>(b.lower_bound);
+      if (b_val->value > 0) {
+        ret.lower_bound = analyzer_->Simplify(a.lower_bound * b_val);
+        ret.upper_bound = analyzer_->Simplify(a.upper_bound * b_val);
+      } else if (b_val->value < 0) {
+        ret.lower_bound = analyzer_->Simplify(a.upper_bound * b_val);
+        ret.upper_bound = analyzer_->Simplify(a.lower_bound * b_val);
+      } else {
+        ret.lower_bound = b_val;  // 0
+        ret.upper_bound = b_val;  // 0
+      }
+    } else if (analyzer_->CanProveGreaterEqual(a.lower_bound, 0) &&
+        analyzer_->CanProveGreaterEqual(b.lower_bound, 0)) {
+      ret.lower_bound = analyzer_->Simplify(a.lower_bound * b.lower_bound);
+      ret.upper_bound = analyzer_->Simplify(a.upper_bound * b.upper_bound);
+    } else {
+      ret.lower_bound = SymbolicBound::kUnknown;
+      ret.upper_bound = SymbolicBound::kUnknown;
+    }
+    ret.upper_bound = analyzer_->Simplify(RelaxRewriteSimplifier(analyzer_)(ret.upper_bound));
+    return ret;
+  }
+
+  Entry VisitExpr_(const DivNode* op) final {
+    Entry a = VisitExpr(op->a);
+    Entry b = VisitExpr(op->b);
+    if (b.is_const()) {
+      auto b_val = Downcast<IntImm>(b.lower_bound);
+      CHECK_NE(b_val->value, 0);
+      Entry ret;
+      if (b_val->value > 0) {
+        ret.lower_bound = analyzer_->Simplify(div(a.lower_bound, b_val));
+        ret.upper_bound = analyzer_->Simplify(div(a.upper_bound, b_val));
+      } else {
+        ret.lower_bound = analyzer_->Simplify(div(a.upper_bound, b_val));
+        ret.upper_bound = analyzer_->Simplify(div(a.lower_bound, b_val));
+      }
+      return ret;
+    }
+    return MakeBound(SymbolicBound::kUnknown, SymbolicBound::kUnknown);
+  }
+
+  Entry VisitExpr_(const FloorDivNode* op) final {
+    Entry a = VisitExpr(op->a);
+    Entry b = VisitExpr(op->b);
+    if (b.is_const()) {
+      auto b_val = Downcast<IntImm>(b.lower_bound);
+      CHECK_NE(b_val->value, 0);
+      Entry ret;
+      if (b_val->value > 0) {
+        ret.lower_bound = analyzer_->Simplify(floordiv(a.lower_bound, b_val));
+        ret.upper_bound = analyzer_->Simplify(floordiv(a.upper_bound, b_val));
+      } else {
+        ret.lower_bound = analyzer_->Simplify(floordiv(a.upper_bound, b_val));
+        ret.upper_bound = analyzer_->Simplify(floordiv(a.lower_bound, b_val));
+      }
+      return ret;
+    }
+    return MakeBound(SymbolicBound::kUnknown, SymbolicBound::kUnknown);
+  }
+
+  Entry VisitExpr_(const VarNode* op) final {
+    Var v = GetRef<Var>(op);
+    auto it = var_map_.find(v);
+    if (it != var_map_.end()) {
+      return it->second;
+    } else {
+      return MakeBound(v, v);
+    }
+  }
+
+  Entry VisitExpr_(const SizeVarNode* op) final {
+    SizeVar v = GetRef<SizeVar>(op);
+    auto it = var_map_.find(v);
+    if (it != var_map_.end()) {
+      return it->second;
+    } else {
+      return MakeBound(v, v);
+    }
+  }
+
 //  Entry VisitExpr_(const ModNode* op) final {
 //    Entry a = VisitExpr(op->a);
 //    Entry b = VisitExpr(op->b);
@@ -204,16 +313,6 @@ class SymbolicBoundAnalyzer::Impl :
 //      // and we just use the simpliest rule.
 //      return Everything(op->dtype);
 //    }
-//  }
-//
-//  Entry VisitExpr_(const FloorDivNode* op) final {
-//    Entry a = VisitExpr(op->a);
-//    Entry b = VisitExpr(op->b);
-//    CHECK(!b.is_const(0)) << "floordiv by zero";
-//    // assume no division by 0
-//    if (b.min_value == 0) b.min_value = 1;
-//    if (b.max_value == 0) b.max_value = -1;
-//    return BinaryOpBoundry(a, b, InfAwareFloorDiv);
 //  }
 //
 //  Entry VisitExpr_(const FloorModNode* op) final {
@@ -272,26 +371,6 @@ class SymbolicBoundAnalyzer::Impl :
 //      return Everything(op->dtype);
 //    }
 //  }
-
-  Entry VisitExpr_(const VarNode* op) final {
-    Var v = GetRef<Var>(op);
-    auto it = var_map_.find(v);
-    if (it != var_map_.end()) {
-      return it->second;
-    } else {
-      return MakeBound(v, v);
-    }
-  }
-
-  Entry VisitExpr_(const SizeVarNode* op) final {
-    SizeVar v = GetRef<SizeVar>(op);
-    auto it = var_map_.find(v);
-    if (it != var_map_.end()) {
-      return it->second;
-    } else {
-      return MakeBound(v, v);
-    }
-  }
 //
 //  Entry VisitRightShift(const CallNode* op) {
 //    Entry a = VisitExpr(op->args[0]);

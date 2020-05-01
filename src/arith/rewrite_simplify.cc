@@ -91,6 +91,21 @@ TryCompare(const PrimExpr& x, int64_t val) {
   if (dbound->max_value <= val) {
     return kLE;
   }
+  SymbolicBound sym_bound = analyzer_->symbolic_bound(diff);
+  auto sym_lb = analyzer_->const_int_bound(sym_bound->lower_bound)->min_value;
+  auto sym_ub = analyzer_->const_int_bound(sym_bound->upper_bound)->max_value;
+  if (sym_lb > val) {
+    return kGT;
+  }
+  if (sym_lb >= val) {
+    return kLT;
+  }
+  if (sym_ub < val) {
+    return kLT;
+  }
+  if (sym_ub <= val) {
+    return kLE;
+  }
   if (val == 0) {
     ModularSet dmod = analyzer_->modular_set(diff);
     if (dmod->base != 0) {
@@ -1563,6 +1578,9 @@ VisitExpr_(const LTNode* op) {
     TVM_TRY_RECURSIVE_REWRITE(x + c1 < c2, x < c2 - c1);
     TVM_TRY_RECURSIVE_REWRITE(x - c1 < c2, x < c2 + c1);
     TVM_TRY_REWRITE(x - c1 < 0, x < c1);
+    TVM_TRY_REWRITE(x + c1 < y + c2, x - y < (c2 - c1));
+    TVM_TRY_REWRITE(x < y + c1, x - y < c1);
+    TVM_TRY_REWRITE(x + c1 < y, x - y < 0 - c1);
   }
   return ret;
 }
