@@ -27,6 +27,7 @@
 
 #include <tvm/te/tensor.h>
 #include <tvm/te/schedule.h>
+#include <tvm/te/specialized_condition.h>
 #include <tvm/relay/expr.h>
 #include <tvm/relay/op_attr_types.h>
 #include <tvm/target/target.h>
