@@ -145,9 +145,13 @@ class SymbolicBoundAnalyzer::Impl :
     Update(var, MakeBound(info->lower_bound, info->upper_bound), override);
   }
 
+  Entry MakeUnknownBound() const {
+    return MakeBound(SymbolicBound::kUnknown, SymbolicBound::kUnknown);
+  }
+
   // Override visitor behaviors
   Entry VisitExprDefault_(const Object* op) final {
-    return MakeBound(SymbolicBound::kUnknown, SymbolicBound::kUnknown);
+    return MakeUnknownBound();
   }
 
   Entry VisitExpr(const PrimExpr& expr) final {
@@ -180,8 +184,16 @@ class SymbolicBoundAnalyzer::Impl :
     Entry a = VisitExpr(op->a);
     Entry b = VisitExpr(op->b);
     Entry ret;
-    ret.lower_bound = analyzer_->Simplify(a.lower_bound + b.lower_bound);
-    ret.upper_bound = analyzer_->Simplify(a.upper_bound + b.upper_bound);
+    if (a.lower_bound.same_as(SymbolicBound::kUnknown) || b.lower_bound.same_as(SymbolicBound::kUnknown)) {
+      ret.lower_bound = SymbolicBound::kUnknown;
+    } else {
+      ret.lower_bound = analyzer_->Simplify(a.lower_bound + b.lower_bound);
+    }
+    if (a.upper_bound.same_as(SymbolicBound::kUnknown) || b.upper_bound.same_as(SymbolicBound::kUnknown)) {
+      ret.upper_bound = SymbolicBound::kUnknown;
+    } else {
+      ret.upper_bound = analyzer_->Simplify(a.upper_bound + b.upper_bound);
+    }
     return ret;
   }
 
@@ -189,15 +201,23 @@ class SymbolicBoundAnalyzer::Impl :
     Entry a = VisitExpr(op->a);
     Entry b = VisitExpr(op->b);
     Entry ret;
-    ret.lower_bound = analyzer_->Simplify(a.lower_bound - b.upper_bound);
-    ret.upper_bound = analyzer_->Simplify(a.upper_bound - b.lower_bound);
+    if (a.lower_bound.same_as(SymbolicBound::kUnknown) || b.upper_bound.same_as(SymbolicBound::kUnknown)) {
+      ret.lower_bound = SymbolicBound::kUnknown;
+    } else {
+      ret.lower_bound = analyzer_->Simplify(a.lower_bound - b.upper_bound);
+    }
+    if (a.upper_bound.same_as(SymbolicBound::kUnknown) || b.lower_bound.same_as(SymbolicBound::kUnknown)) {
+      ret.upper_bound = SymbolicBound::kUnknown;
+    } else {
+      ret.upper_bound = analyzer_->Simplify(a.upper_bound - b.lower_bound);
+    }
     return ret;
   }
 
   Entry VisitExpr_(const MulNode* op) final {
     Entry a = VisitExpr(op->a);
     Entry b = VisitExpr(op->b);
-    Entry ret;
+    Entry ret = MakeUnknownBound();
     if (a.is_const()) {
       auto a_val = Downcast<IntImm>(a.lower_bound);
       if (a_val->value > 0) {
@@ -223,12 +243,13 @@ class SymbolicBoundAnalyzer::Impl :
         ret.upper_bound = b_val;  // 0
       }
     } else if (analyzer_->CanProveGreaterEqual(a.lower_bound, 0) &&
-        analyzer_->CanProveGreaterEqual(b.lower_bound, 0)) {
+               analyzer_->CanProveGreaterEqual(b.lower_bound, 0)) {
       ret.lower_bound = analyzer_->Simplify(a.lower_bound * b.lower_bound);
-      ret.upper_bound = analyzer_->Simplify(a.upper_bound * b.upper_bound);
-    } else {
-      ret.lower_bound = SymbolicBound::kUnknown;
-      ret.upper_bound = SymbolicBound::kUnknown;
+      if (a.upper_bound.same_as(SymbolicBound::kUnknown) || b.lower_bound.same_as(SymbolicBound::kUnknown)) {
+        ret.upper_bound = SymbolicBound::kUnknown;
+      } else {
+        ret.upper_bound = analyzer_->Simplify(a.upper_bound * b.upper_bound);
+      }
     }
     ret.upper_bound = analyzer_->Simplify(RelaxRewriteSimplifier(analyzer_)(ret.upper_bound));
     return ret;
@@ -242,15 +263,31 @@ class SymbolicBoundAnalyzer::Impl :
       CHECK_NE(b_val->value, 0);
       Entry ret;
       if (b_val->value > 0) {
-        ret.lower_bound = analyzer_->Simplify(div(a.lower_bound, b_val));
-        ret.upper_bound = analyzer_->Simplify(div(a.upper_bound, b_val));
+        if (a.lower_bound.same_as(SymbolicBound::kUnknown)) {
+          ret.lower_bound = SymbolicBound::kUnknown;
+        } else {
+          ret.lower_bound = analyzer_->Simplify(div(a.lower_bound, b_val));
+        }
+        if (a.upper_bound.same_as(SymbolicBound::kUnknown)) {
+          ret.upper_bound = SymbolicBound::kUnknown;
+        } else {
+          ret.upper_bound = analyzer_->Simplify(div(a.upper_bound, b_val));
+        }
       } else {
-        ret.lower_bound = analyzer_->Simplify(div(a.upper_bound, b_val));
-        ret.upper_bound = analyzer_->Simplify(div(a.lower_bound, b_val));
+        if (a.upper_bound.same_as(SymbolicBound::kUnknown)) {
+          ret.lower_bound = SymbolicBound::kUnknown;
+        } else {
+          ret.lower_bound = analyzer_->Simplify(div(a.upper_bound, b_val));
+        }
+        if (a.lower_bound.same_as(SymbolicBound::kUnknown)) {
+          ret.upper_bound = SymbolicBound::kUnknown;
+        } else {
+          ret.upper_bound = analyzer_->Simplify(div(a.lower_bound, b_val));
+        }
       }
       return ret;
     }
-    return MakeBound(SymbolicBound::kUnknown, SymbolicBound::kUnknown);
+    return MakeUnknownBound();
   }
 
   Entry VisitExpr_(const FloorDivNode* op) final {
@@ -261,15 +298,31 @@ class SymbolicBoundAnalyzer::Impl :
       CHECK_NE(b_val->value, 0);
       Entry ret;
       if (b_val->value > 0) {
-        ret.lower_bound = analyzer_->Simplify(floordiv(a.lower_bound, b_val));
-        ret.upper_bound = analyzer_->Simplify(floordiv(a.upper_bound, b_val));
+        if (a.lower_bound.same_as(SymbolicBound::kUnknown)) {
+          ret.lower_bound = SymbolicBound::kUnknown;
+        } else {
+          ret.lower_bound = analyzer_->Simplify(floordiv(a.lower_bound, b_val));
+        }
+        if (a.upper_bound.same_as(SymbolicBound::kUnknown)) {
+          ret.upper_bound = SymbolicBound::kUnknown;
+        } else {
+          ret.upper_bound = analyzer_->Simplify(floordiv(a.upper_bound, b_val));
+        }
       } else {
-        ret.lower_bound = analyzer_->Simplify(floordiv(a.upper_bound, b_val));
-        ret.upper_bound = analyzer_->Simplify(floordiv(a.lower_bound, b_val));
+        if (a.upper_bound.same_as(SymbolicBound::kUnknown)) {
+          ret.lower_bound = SymbolicBound::kUnknown;
+        } else {
+          ret.lower_bound = analyzer_->Simplify(floordiv(a.upper_bound, b_val));
+        }
+        if (a.lower_bound.same_as(SymbolicBound::kUnknown)) {
+          ret.upper_bound = SymbolicBound::kUnknown;
+        } else {
+          ret.upper_bound = analyzer_->Simplify(floordiv(a.lower_bound, b_val));
+        }
       }
       return ret;
     }
-    return MakeBound(SymbolicBound::kUnknown, SymbolicBound::kUnknown);
+    return MakeUnknownBound();
   }
 
   Entry VisitExpr_(const VarNode* op) final {

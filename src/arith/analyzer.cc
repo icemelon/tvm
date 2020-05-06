@@ -92,10 +92,6 @@ bool Analyzer::CanProveGreaterEqual(const PrimExpr& expr, int64_t lower_bound) {
   }
   auto bd = this->const_int_bound(this->rewrite_simplify(expr));
   if (bd->min_value >= lower_bound) return true;
-  auto sbd = this->symbolic_bound(this->rewrite_simplify(expr));
-  if (const auto* lb = sbd->lower_bound.as<IntImmNode>()) {
-    return (lb->value >= lower_bound);
-  }
   return false;
 }
 
@@ -105,10 +101,6 @@ bool Analyzer::CanProveGreater(const PrimExpr& expr, int64_t lower_bound) {
   }
   auto bd = this->const_int_bound(this->rewrite_simplify(expr));
   if (bd->min_value > lower_bound) return true;
-  auto sbd = this->symbolic_bound(this->rewrite_simplify(expr));
-  if (const auto* lb = sbd->lower_bound.as<IntImmNode>()) {
-    return (lb->value > lower_bound);
-  }
   return false;
 }
 

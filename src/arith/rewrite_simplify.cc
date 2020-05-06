@@ -997,9 +997,11 @@ VisitExpr_(const FloorModNode* op) {
                        c2.Eval()->value > 0 &&
                        c1.Eval()->value % c2.Eval()->value == 0);
 
-    if (CanProveGreaterEqual(op->a , 0) && CanProveGreaterEqual(op->b, 0) &&
-        CanProveGreater(op->b - op->a, 0)) {
-      return op->a;
+    if (CanProveGreaterEqual(op->a , 0) && CanProveGreaterEqual(op->b, 0)) {
+      CompareResult result = TryCompare(op->a - op->b, 0);
+      if (result == kLT) {
+        return op->a;
+      }
     }
 
     // try modular analysis
