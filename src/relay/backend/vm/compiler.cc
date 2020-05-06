@@ -56,10 +56,10 @@ namespace transform {
 Pass LambdaLift();
 Pass InlinePrimitives();
 
-Pass ManifestAlloc(Target target_host) {
+Pass ManifestAlloc(Target target_host, vm::TargetsMap targets) {
   auto f = tvm::runtime::Registry::Get("relay.transform.ManifestAlloc");
   CHECK(f != nullptr) << "could not load memory allocation pass";
-  return (*f)(target_host);
+  return (*f)(target_host, targets);
 }
 
 ExprDeviceMap ContextAnalysis(Expr expr, TVMContext default_device) {
@@ -265,12 +265,18 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
   VMFunction Compile(const GlobalVar& var, const Function& func) {
     // Collect the annotated device information.
     // This indicates where each Relay expr should be executed.
+    TVMContext default_device;
     if (targets_.size() > 1) {
       transform::PassContext pass_ctx = PassContext::Current();
-      TVMContext default_device;
       default_device.device_type = static_cast<DLDeviceType>(pass_ctx->fallback_device);
       default_device.device_id = 0;
       expr_device_map_ = transform::ContextAnalysis(func, default_device);
+    } else {
+      default_device.device_type = static_cast<DLDeviceType>((targets_.begin())->first);
+      if (default_device.device_type != kDLCPU) {
+        default_device.device_id = 0;
+        expr_device_map_ = transform::ContextAnalysis(func, default_device);
+      }
     }
 
     size_t i = 0;
@@ -1028,14 +1034,14 @@ IRModule VMCompiler::OptimizeModule(const IRModule& mod, const TargetsMap& targe
   pass_seqs.push_back(transform::Inline());
 
   // Manifest the allocations.
-  pass_seqs.push_back(transform::ManifestAlloc(this->target_host_));
+  pass_seqs.push_back(transform::ManifestAlloc(this->target_host_, targets));
   // Compute away possibly introduced constant computation.
   pass_seqs.push_back(transform::FoldConstant());
   // Fuse the shape functions.
   pass_seqs.push_back(transform::FuseOps());
 
   // Manifest the allocations needed for the shape functions.
-  pass_seqs.push_back(transform::ManifestAlloc(this->target_host_));
+  pass_seqs.push_back(transform::ManifestAlloc(this->target_host_, targets));
 
   transform::Sequential seq(pass_seqs);
   tvm::With<relay::transform::PassContext> ctx(pass_ctx);

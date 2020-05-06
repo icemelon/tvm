@@ -26,6 +26,7 @@
  * used as "barrier" to avoid fusing operators belonging to differen devices.
  */
 
+#include <topi/elemwise.h>
 #include <tvm/tir/expr.h>
 #include <tvm/relay/attrs/device_copy.h>
 #include <tvm/relay/expr.h>
@@ -62,7 +63,12 @@ on different devices.
 .set_attr<TOpPattern>("TOpPattern", kOpaque)
 .set_attr<TOpIsStateful>("TOpIsStateful", false)
 .set_attr<FInferCorrectLayout>("FInferCorrectLayout",
-                               ElemwiseArbitraryLayout);
+                               ElemwiseArbitraryLayout)
+.set_attr<FTVMCompute>("FTVMCompute",
+                       [](const Attrs& attrs, const Array<te::Tensor>& inputs,
+                          const Type& out_dtype) -> Array<te::Tensor> {
+                         return {topi::identity(inputs[0])};
+                       });
 
 }  // namespace relay
 }  // namespace tvm

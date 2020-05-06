@@ -144,8 +144,8 @@ def verify_any_reshape(x_shape, newshape, x_np_shape, out_shape):
     mod = tvm.IRModule()
     mod["main"] = relay.Function([x], y)
     data = np.random.uniform(size=x_np_shape).astype('float32')
-    for kind in ["debug", "vm"]:
-        ex = relay.create_executor(kind, mod=mod, ctx=tvm.cpu(), target="llvm")
+    for kind in ["vm"]:
+        ex = relay.create_executor(kind, mod=mod, ctx=tvm.gpu(), target="cuda")
         result = ex.evaluate()(data).asnumpy()
         assert result.shape == out_shape
         tvm.testing.assert_allclose(result.flatten(), data.flatten())

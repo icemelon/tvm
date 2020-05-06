@@ -79,6 +79,7 @@ register_injective_schedule("ndarray_size")
 register_broadcast_schedule("fast_exp")
 register_broadcast_schedule("fast_tanh")
 register_broadcast_schedule("fast_erf")
+register_broadcast_schedule("device_copy")
 
 
 # zeros
@@ -228,3 +229,4 @@ register_shape_func("tan", False, elemwise_shape_func)
 register_shape_func("fast_exp", False, elemwise_shape_func)
 register_shape_func("fast_tanh", False, elemwise_shape_func)
 register_shape_func("fast_erf", False, elemwise_shape_func)
+register_shape_func("device_copy", False, elemwise_shape_func)

@@ -22,7 +22,7 @@ import numpy as np
 import logging
 
 from tvm.ir.transform import PassContext
-from tvm import nd
+from tvm import nd, container, tir
 from ..expr_functor import ExprMutator, ExprVisitor
 from ..function import Function
 from ..scope_builder import ScopeBuilder
@@ -36,6 +36,7 @@ from ..analysis.context_analysis import ContextAnalysis, mk_analysis_annotator, 
 from ...import cpu
 
 
+logging.basicConfig(level=logging.DEBUG)
 
 class IsReshapePass(ExprVisitor):
     def __init__(self):
@@ -72,7 +73,20 @@ class ManifestAllocPass(ExprMutator):
         super().__init__()
 
     def get_context(self, expr):
-        return self.context_analysis[expr]
+        # TODO(@zhiics) Need to add all newly created epxressions to the map.
+        # assert expr in self.context_analysis, expr.astext(False)
+        if expr in self.context_analysis:
+            return self.context_analysis[expr]
+        else:
+            return self.default_context
+
+    def device_copy(self, scope, inp, src_ctx, dst_ctx, idx):
+        # TODO(@zhiics) move divice_copy to memory namespace
+        copy = self.visit(op.tensor.device_copy(inp, src_ctx, dst_ctx))
+        copy_out = scope.let("copy_out_{0}".format(idx), copy)
+        self.context_analysis[copy] = dst_ctx
+        self.context_analysis[copy_out] = dst_ctx
+        return copy_out
 
     def current_scope(self):
         return self.scopes[-1]
@@ -157,11 +171,15 @@ class ManifestAllocPass(ExprMutator):
 
         is_inputs = []
         input_pos = 0
+        cpu_ctx = nd.cpu(0)
         for i, (arg, state) in enumerate(zip(new_args, input_states)):
             state = int(state)
             # Pass Shapes
             if state == 2:
                 for j, subexp in enumerate(from_tuple_type(arg.type_annotation, arg)):
+                    ctx = self.get_context(subexp)
+                    if ctx.device_type != cpu_ctx.device_type:
+                        subexp = self.device_copy(scope, subexp, ctx, cpu_ctx, j)
                     let_in_arg = scope.let("in_arg_{0}".format(input_pos + j), subexp)
                     sh_of = self.visit(self.shape_of(let_in_arg))
                     shape_func_ins.append(
@@ -171,6 +189,9 @@ class ManifestAllocPass(ExprMutator):
             # Pass Inputs
             elif state == 1:
                 new_arg = self.visit(arg)
+                ctx = self.get_context(arg)
+                if ctx.device_type != cpu_ctx.device_type:
+                    new_arg = self.device_copy(scope, new_arg, ctx, cpu_ctx, i)
                 shape_func_ins.append(
                     scope.let("in_shape_{0}".format(input_pos), new_arg))
                 input_pos += 1
@@ -182,8 +203,10 @@ class ManifestAllocPass(ExprMutator):
         out_shapes = []
         for i, out in enumerate(cfunc.outputs):
             tt = ty.TensorType(out.shape, out.dtype)
-            alloc = self.make_static_allocation(scope, tt, i)
+            alloc = self.make_static_allocation(scope, tt, cpu_ctx, i)
+            self.context_analysis[alloc] = cpu_ctx
             alloc = scope.let("shape_func_out_{0}".format(i), alloc)
+            self.context_analysis[alloc] = cpu_ctx
             out_shapes.append(alloc)
 
         shape_call = self.shape_func(
@@ -191,8 +214,16 @@ class ManifestAllocPass(ExprMutator):
             expr.Tuple(shape_func_ins),
             expr.Tuple(out_shapes), is_inputs)
 
+        self.context_analysis[shape_call] = cpu_ctx
         scope.let("shape_func", shape_call)
-        return out_shapes
+
+        copy_out_shapes = []
+        for i, alloc in enumerate(out_shapes):
+            if ctx.device_type != cpu_ctx.device_type:
+                copy = self.device_copy(scope, alloc, cpu_ctx, ctx, i)
+                copy_out_shapes.append(copy)
+
+        return copy_out_shapes if copy_out_shapes else out_shapes
 
     def dynamic_invoke(self, scope, func, ins, new_args, out_types, ret_type):
         """Generate the code for invoking a TVM op with a dynamic shape."""
@@ -203,7 +234,7 @@ class ManifestAllocPass(ExprMutator):
                 out_shape, out_type.dtype)
             alignment = self.compute_alignment(out_type.dtype)
             # Let CPU compute the shape func.
-            context = tvm.cpu(0)
+            context = nd.cpu(0)
             sto = scope.let("storage_{i}".format(i=i), self.alloc_storage(
                 size, alignment, context, out_type.dtype))
             storages.append(sto)
@@ -275,17 +306,24 @@ class ManifestAllocPass(ExprMutator):
 @transform.function_pass(opt_level=0)
 class ManifestAlloc:
     """The explicit pass wrapper around ManifestAlloc."""
-    def __init__(self, target_host):
+    def __init__(self, target_host, targets):
         self.target_host = target_host
-        self.default_device = 0 # kCPU
+        self.targets = targets
 
     def transform_function(self, func, mod, _):
         # TODO(@jroesch): Is there a way to do one shot initilization?
         # can we have def pass_init?
         mod.import_from_std("core.rly")
-        pass_ctx = PassContext.current()
-        fallback_ctx = nd.context(pass_ctx.fallback_device)
-        ca = ContextAnalysis(fallback_ctx)
+
+        assert isinstance(self.targets, (dict, container.Map))
+        if len(self.targets) > 1:
+            pass_ctx = PassContext.current()
+            fallback_ctx = nd.context(pass_ctx.fallback_device)
+            ca = ContextAnalysis(fallback_ctx)
+        else:
+            dev, _ = self.targets.items()[0]
+            ca = ContextAnalysis(nd.context(dev.value))
+
         # We use logger here to help debug.
         logging.debug("-----BEFORE ANALYSIS-----")
         logging.debug(func.astext(False))

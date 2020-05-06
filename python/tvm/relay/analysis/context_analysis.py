@@ -336,7 +336,7 @@ class ContextAnalysis(ExprVisitor):
     def visit_tuple(self, tup):
         # TODO(@zhiics) How to handle tuple with different device context for
         # different fields.
-        self.unify(self.device_for(tup), self.device_for(tup[0]))
+        # self.unify(self.device_for(tup), self.device_for(tup[0]))
         super().visit_tuple(tup)
 
     def visit_tuple_getitem(self, t):

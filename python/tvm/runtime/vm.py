@@ -299,7 +299,12 @@ class VirtualMachine(object):
                 args.append(c.device_id)
         else:
             assert isinstance(ctx, tvm.runtime.TVMContext)
-            args = [ctx.device_type, ctx.device_id]
+            # CPU is required for executing shape functions
+            if ctx.device_type != tvm.cpu(0).device_type:
+                args.append(tvm.cpu().device_type)
+                args.append(0)
+            args.append(ctx.device_type)
+            args.append(ctx.device_id)
         self._init(*args)
 
     def set_input(self, func_name, *args, **kwargs):
