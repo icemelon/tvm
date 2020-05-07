@@ -267,7 +267,7 @@ def RewriteUnsafeSelect():
     return _ffi_api.RewriteUnsafeSelect()
 
 
-def Simplify():
+def Simplify(expand_let=True):
     """Run arithmetic simplifications on the statements and expressions.
 
     Returns
@@ -275,7 +275,7 @@ def Simplify():
     fpass : tvm.transform.Pass
         The result pass
     """
-    return _ffi_api.Simplify()
+    return _ffi_api.Simplify(expand_let)
 
 
 def InstrumentBoundCheckers():
@@ -478,3 +478,7 @@ def VerifyMemory():
         The result pass
     """
     return _ffi_api.VerifyMemory()
+
+
+def BindSpecializedCondition():
+    return _ffi_api.BindSpecializedCondition()

@@ -177,6 +177,8 @@ IRModule lower(te::Schedule sch,
   // Phase 2
   pass_list.push_back(tir::transform::Simplify());
   pass_list.push_back(tir::transform::RemoveNoOp());
+  pass_list.push_back(tir::transform::BindSpecializedCondition());
+  pass_list.push_back(tir::transform::Simplify(false));
   if (!(config->disable_select_rewriting)) {
     pass_list.push_back(tir::transform::RewriteUnsafeSelect());
   }

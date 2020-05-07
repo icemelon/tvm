@@ -38,8 +38,9 @@ using namespace tir;
 
 class StmtSimplifier : public IRMutatorWithAnalyzer {
  public:
-  explicit StmtSimplifier(Analyzer* analyzer)
-      : IRMutatorWithAnalyzer(analyzer) {}
+  explicit StmtSimplifier(Analyzer* analyzer, bool expand_let)
+      : IRMutatorWithAnalyzer(analyzer),
+        expand_let_(expand_let) {}
 
   using Parent = IRMutatorWithAnalyzer;
   using Parent::VisitStmt;
@@ -62,7 +63,7 @@ class StmtSimplifier : public IRMutatorWithAnalyzer {
 
   Stmt VisitStmt_(const LetStmtNode* op) {
     PrimExpr value = this->VisitExpr(op->value);
-    if (!tir::HasSideEffect(value)) {
+    if (expand_let_ && !tir::HasSideEffect(value)) {
       // it is fine to discard the let binding
       // because the call to simplify will always inline the var.
       analyzer_->Bind(op->var, value);
@@ -92,6 +93,9 @@ class StmtSimplifier : public IRMutatorWithAnalyzer {
     }
     return GetRef<Stmt>(op);
   }
+
+ private:
+  bool expand_let_;
 };
 
 }  // namespace arith
@@ -99,11 +103,11 @@ class StmtSimplifier : public IRMutatorWithAnalyzer {
 namespace tir {
 namespace transform {
 
-Pass Simplify() {
-  auto pass_func = [](PrimFunc f, IRModule m, PassContext ctx) {
+Pass Simplify(bool expand_let) {
+  auto pass_func = [expand_let](PrimFunc f, IRModule m, PassContext ctx) {
     auto* n = f.CopyOnWrite();
     arith::Analyzer analyzer;
-    n->body = arith::StmtSimplifier(&analyzer).Simplify(std::move(n->body));
+    n->body = arith::StmtSimplifier(&analyzer, expand_let).Simplify(std::move(n->body));
     return f;
   };
   return CreatePrimFuncPass(pass_func, 0, "tir.Simplify", {});

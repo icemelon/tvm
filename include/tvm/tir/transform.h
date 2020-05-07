@@ -186,9 +186,10 @@ TVM_DLL Pass RewriteUnsafeSelect();
 /*!
 * \brief Run arithmetic simplifications on the statements and expressions.
 *
+* \param expand_let Whether expand the let stmt.
 * \return The pass.
 */
-TVM_DLL Pass Simplify();
+TVM_DLL Pass Simplify(bool expand_let = true);
 
 /*!
 * \brief Instruments bound checkers.
@@ -348,6 +349,13 @@ TVM_DLL Pass NarrowDataType(int target_bits);
  * \return The pass.
  */
 TVM_DLL Pass PointerValueTypeRewrite();
+
+/*!
+ * \brief Bind the shape var by the mod specialized condition.
+ *
+ * \return The pass.
+ */
+TVM_DLL Pass BindSpecializedCondition();
 
 }  // namespace transform
 }  // namespace tir

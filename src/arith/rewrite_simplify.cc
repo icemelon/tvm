@@ -1583,6 +1583,8 @@ VisitExpr_(const LTNode* op) {
     TVM_TRY_REWRITE(x + c1 < y + c2, x - y < (c2 - c1));
     TVM_TRY_REWRITE(x < y + c1, x - y < c1);
     TVM_TRY_REWRITE(x + c1 < y, x - y < 0 - c1);
+    TVM_TRY_REWRITE_IF(x * c1 - y * c1 < c2, x - y < truncdiv(c2, c1),
+                       c1.Eval()->value > 0);
   }
   return ret;
 }

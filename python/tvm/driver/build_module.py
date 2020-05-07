@@ -208,6 +208,8 @@ def lower(sch,
     pass_list += [
         tvm.tir.transform.Simplify(),
         tvm.tir.transform.RemoveNoOp(),
+        tvm.tir.transform.BindSpecializedCondition(),
+        tvm.tir.transform.Simplify(False),
     ]
 
     if not cfg.disable_select_rewriting:
@@ -220,6 +222,7 @@ def lower(sch,
 
     optimize = tvm.transform.Sequential(pass_list)
     mod = optimize(mod)
+
     return mod
 
 
