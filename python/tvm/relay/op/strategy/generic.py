@@ -19,6 +19,7 @@
 import logging
 
 import re
+from tvm import te as _te
 import topi
 from topi.util import get_const_int, get_const_float, get_const_tuple, get_float_tuple
 from .. import op as _op
@@ -32,6 +33,15 @@ def wrap_topi_schedule(topi_schedule):
         with target:
             return topi_schedule(outs)
     return wrapper
+
+def generate_modular_strategies(strategy, wrapped_compute, wrapped_schedule,
+                                dim_var, mod_factor, name_prefix, base_plevel):
+    for i in range(mod_factor):
+        with _te.SpecializedCondition(dim_var % mod_factor == i):
+            strategy.add_implementation(
+                wrapped_compute, wrapped_schedule,
+                f"{name_prefix}-mod{mod_factor}-{i}",
+                plevel=base_plevel + mod_factor - i - 1)
 
 def get_conv2d_in_channels(data_shape, data_layout):
     """Get conv2d input channels"""

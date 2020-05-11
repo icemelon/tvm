@@ -18,8 +18,10 @@
 # pylint: disable=invalid-name,unused-argument,wildcard-import,unused-wildcard-import
 import logging
 
-import topi
+import tvm
+from tvm import autotvm
 from tvm.te import SpecializedCondition
+import topi
 from .generic import *
 from .. import op as _op
 
@@ -242,7 +244,25 @@ def dense_strategy_cpu(attrs, inputs, out_type, target):
         strategy.add_implementation(wrap_compute_dense(topi.x86.dense_cblas),
                                     wrap_topi_schedule(topi.x86.schedule_dense_cblas),
                                     name="dense_cblas.x86",
-                                    plevel=15)
+                                    plevel=100)
+    if isinstance(m, tvm.tir.Var):
+        args = []
+        for t in inputs:
+            args.append(tvm.te.placeholder(t.shape, dtype=t.dtype))
+        args.append(None)
+        args.append(out_type.dtype)
+        task = autotvm.task.create("dense_nopack.x86", args, target)
+        cfg = autotvm.DispatchContext.current.query(target, task.workload)
+        if not cfg.is_fallback:
+            factor = cfg["tile_y"].size[-1]
+            generate_modular_strategies(
+                strategy,
+                wrap_compute_dense(topi.x86.dense_nopack),
+                wrap_topi_schedule(topi.x86.schedule_dense_nopack),
+                m,
+                factor,
+                "dense_nopack.x86",
+                11)
     # with SpecializedCondition(m >= 16):
     #     # this implementation may not be well-optimized, so use plevel=8 for now.
     #     strategy.add_implementation(wrap_compute_dense(topi.x86.dense_pack),

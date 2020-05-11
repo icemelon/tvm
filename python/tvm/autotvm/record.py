@@ -162,6 +162,8 @@ def decode(row, protocol='json'):
             return x
 
         tsk = task.Task(clean_json_to_python(task_name), clean_json_to_python(task_args))
+        if "wildcard" in row:
+            tsk.wildcard = row["wildcard"]
         config = ConfigEntity.from_json_dict(row["config"])
         inp = MeasureInput(tgt, tsk, config)
         result = MeasureResult(*[tuple(x) if isinstance(x, list) else x for x in row["result"]])

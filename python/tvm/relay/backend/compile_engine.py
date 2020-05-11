@@ -266,6 +266,7 @@ def lower_symbolic_op(op, attrs, inputs, out_type, target):
                 if best_impl is None or impl.plevel > best_impl.plevel:
                     best_impl = impl
             impls.append((spec.condition, best_impl))
+    impls = sorted(impls, key=lambda e: e[1].plevel, reverse=True)
 
     ret = []
     for cond, impl in impls:

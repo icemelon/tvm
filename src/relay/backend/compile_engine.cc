@@ -919,9 +919,9 @@ class CompileEngineImpl : public CompileEngineNode {
     // invoke default kernel
     tir::Stmt body = fcall_kernel(default_kernel_idx);
     // inovke specialized kernels with its condition
-    for (auto iter : specialized_kernels) {
-      tir::Stmt then = fcall_kernel(iter.second);
-      body = tir::IfThenElseNode::make(iter.first, then, body);
+    for (auto ri = specialized_kernels.rbegin(); ri != specialized_kernels.rend(); ++ri) {
+      tir::Stmt then = fcall_kernel(ri->second);
+      body = tir::IfThenElseNode::make(ri->first, then, body);
     }
 
     for (auto ri = seq_init.rbegin(); ri != seq_init.rend(); ++ri) {

@@ -21,6 +21,8 @@ Task can be constructed from tuple of func, args, and kwargs.
 func is a state-less function, or a string that
 registers the standard task.
 """
+import collections
+import logging
 import numpy as np
 
 from tvm import target as _target
@@ -33,6 +35,9 @@ from tvm.te import tensor, placeholder
 from ..util import get_const_int, get_const_tuple
 from .dispatcher import DispatchContext, ApplyConfig
 from .space import ConfigSpace
+
+
+logger = logging.getLogger('autotvm')
 
 def _raise_error(*args, **kwargs):  # pylint: disable=unused-argument
     raise RuntimeError("The function of this task is not found. Possibly the function "
@@ -47,13 +52,22 @@ def serialize_args(args):
     ----------
     args: list of hashable or Tensor
     """
+    vmap = collections.OrderedDict()
+
     def _encode(x):
         if isinstance(x, tensor.Tensor):
-            return ('TENSOR', get_const_tuple(x.shape), x.dtype)
+            shape = _encode(list(x.shape))
+            return ('TENSOR', shape, x.dtype)
         if isinstance(x, (tuple, list, container.Array)):
             return tuple([_encode(a) for a in x])
-        if isinstance(x, (str, int, float, np.int, np.float, expr.Var)):
+        if isinstance(x, (str, int, float, np.int, np.float)):
             return x
+        if isinstance(x, expr.Var):
+            if x in vmap:
+                return vmap[x]
+            name = "_w%d" % len(vmap)
+            vmap[x] = name
+            return name
         if isinstance(x, (expr.StringImm, expr.IntImm, expr.FloatImm)):
             return x.value
         if isinstance(x, runtime.container.String):
@@ -65,6 +79,14 @@ def serialize_args(args):
     ret = []
     for t in args:
         ret.append(_encode(t))
+    if vmap:
+        wildcard = ["__wildcard"]
+        for v in vmap:
+            if isinstance(v, expr.SizeVar):
+                wildcard.append((vmap[v], v.name, "size_var", v.dtype))
+            else:
+                wildcard.append((vmap[v], v.name, "var", v.dtype))
+        ret.append(tuple(wildcard))
     return tuple(ret)
 
 
@@ -75,10 +97,29 @@ def deserialize_args(args):
     ----------
     args: list of hashable or Tensor
     """
+    args = list(args)
+    vmap = {}
+    if isinstance(args[-1], tuple) and args[-1][0] == "__wildcard":
+        wildcard = args.pop()
+        for i in range(1, len(wildcard)):
+            wc_name, vname, var_type, dtype = wildcard[i]
+            assert var_type in ["var", "size_var"]
+            if var_type == "size_var":
+                v = expr.SizeVar(vname, dtype)
+            else:
+                v = expr.Var(vname, dtype)
+            vmap[wc_name] = v
     ret = []
     for t in args:
         if isinstance(t, tuple) and t[0] == 'TENSOR':
-            ret.append(placeholder(shape=t[1], dtype=t[2]))
+            shape = []
+            for dim in t[1]:
+                if isinstance(dim, str):
+                    assert dim in vmap
+                    shape.append(vmap[dim])
+                else:
+                    shape.append(dim)
+            ret.append(placeholder(shape=shape, dtype=t[2]))
         else:
             ret.append(t)
     return ret
@@ -119,6 +160,7 @@ class Task(object):
         self.name = name
         self.args = args
         self.kwargs = {}  # currently unused
+        self.wildcard = None
 
         # init null config space
         self.config_space = None
@@ -132,6 +174,20 @@ class Task(object):
     @property
     def workload(self):
         return (self.name,) + serialize_args(self.args)
+
+    @property
+    def wildcard_workload(self):
+        if self.wildcard is None:
+            return None
+        wkl = list(self.workload)
+        for arg_idx, axis, wildcard_idx in self.wildcard:
+            arg = list(wkl[arg_idx+1])
+            assert arg[0] == "TENSOR"
+            shape = list(arg[1])
+            shape[axis] = "_w%d" % wildcard_idx
+            arg[1] = tuple(shape)
+            wkl[arg_idx+1] = tuple(arg)
+        return tuple(wkl)
 
     def instantiate(self, config):
         """Instantiate this task function (template) with a config.
@@ -457,10 +513,13 @@ def compute_flop(sch):
     """
     def _prod_length(axes):
         """compute product of the lengths of a list of axes"""
-        try:
-            num_iter = int(np.prod([get_const_int(axis.dom.extent) for axis in axes]))
-        except ValueError:
-            raise FlopCalculationError("The length of axis is not constant. ")
+        num_iter = 1
+        for axis in axes:
+            try:
+                num_iter *= get_const_int(axis.dom.extent)
+            except ValueError:
+                logger.warning("Axis has non-constant length: %s" % axis.dom.extent)
+                return 0
         return num_iter
 
     def _count_flop(exp):
@@ -534,7 +593,7 @@ def compute_flop(sch):
                                         "FLOP for this operator")
 
     if ret == 0:
-        raise RuntimeError("Cannot find float number operation in this operator. "
-                           "Please use `cfg.add_flop` to manually set "
-                           "FLOP for this operator")
+        logger.warning("Cannot find float number operation in this operator. "
+                       "Please use `cfg.add_flop` to manually set "
+                       "FLOP for this operator")
     return ret
