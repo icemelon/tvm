@@ -17,6 +17,7 @@
 # pylint: disable=invalid-name,too-many-locals,unused-variable
 """x86 batch_matmul operators"""
 from tvm import te
+from tvm import tir
 from tvm import autotvm
 from tvm.autotvm.task.space import SplitEntity
 from tvm.contrib import cblas
@@ -85,7 +86,7 @@ def schedule_batch_matmul(cfg, outs):
             C = op.output(0)
             A, B = op.input_tensors
             _, M, K = get_const_tuple(A.shape)
-            _, _, N = get_const_tuple(C.shape)
+            _, N, _ = get_const_tuple(C.shape)
 
             if op not in s.outputs:
                 s[C].compute_inline()
@@ -96,9 +97,9 @@ def schedule_batch_matmul(cfg, outs):
             CC = s.cache_write(C, "global")
 
             # create tuning space
-            cfg.define_split("tile_y", M, num_outputs=2)
-            cfg.define_split("tile_x", N, num_outputs=2)
-            cfg.define_split("tile_k", K, num_outputs=2)
+            cfg.define_split("tile_y", 32 if isinstance(M, tir.Var) else M, num_outputs=2, policy="verbose")
+            cfg.define_split("tile_x", 32 if isinstance(N, tir.Var) else N, num_outputs=2, policy="verbose")
+            cfg.define_split("tile_k", 32 if isinstance(K, tir.Var) else K, num_outputs=2, policy="verbose")
 
             b, y, x = s[O].op.axis
             yo, yi = cfg["tile_y"].apply(s, O, y)

@@ -58,7 +58,6 @@ def _lower(mod,
         grc = graph_runtime_codegen.GraphRuntimeCodegen(None, target)
         grc.codegen(opt_mod["main"])
     except tvm.TVMError as e:
-        print(e)
         compiler = relay.vm.VMCompiler()
         if params:
             compiler.set_params(params)
@@ -146,9 +145,9 @@ def extract_from_multiple_program(mods, params, target, target_host=None, ops=No
 
     # create tasks for target
     tasks = []
-    for task_name, args in env.get_tasks():
+    for workload in env.get_tasks():
         try:
-            tsk = create(task_name, args,
+            tsk = create(workload.task_name, workload.args,
                          target=target, target_host=target_host)
             tasks.append(tsk)
         except topi.InvalidShapeError:

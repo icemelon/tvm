@@ -30,8 +30,8 @@ import tvm.te._ffi_api
 from tvm import target as _target
 from tvm.te import tensor
 
-from .task import args_to_workload, serialize_args, DispatchContext, \
-    _register_task_compute, _register_task_schedule
+from .task import DispatchContext, _register_task_compute, _register_task_schedule
+from .workload import Workload
 
 
 # Task extractor for relay program
@@ -67,7 +67,7 @@ class TaskExtractEnv:
         self.task_collection = []
         self.wanted_relay_ops = wanted_relay_ops
 
-    def add_task(self, task_name, args):
+    def add_task(self, workload):
         """Add AutoTVM task
 
         Parameters
@@ -78,9 +78,8 @@ class TaskExtractEnv:
         args: tuple
             Arguments to the TOPI function.
         """
-        key = (task_name, serialize_args(args))
-        if self.allow_duplicate or key not in self.task_collection:
-            self.task_collection.append(key)
+        if self.allow_duplicate or workload not in self.task_collection:
+            self.task_collection.append(workload)
 
     def get_tasks(self):
         """Get collected tasks
@@ -147,9 +146,9 @@ def register_topi_compute(task_name, func=None):
             """wrapper function for topi compute"""
             assert not kwargs, "Do not support kwargs in template function call"
             task_env = TaskExtractEnv.current
+            workload = Workload(task_name, args)
             if task_env is not None and task_env.tracing:
-                task_env.add_task(task_name, args)
-            workload = args_to_workload(args, task_name)
+                task_env.add_task(workload)
             tgt = _target.Target.current()
             cfg = DispatchContext.current.query(tgt, workload)
             node = topi_compute(cfg, *args)
@@ -234,7 +233,7 @@ def get_workload(outs):
         for t in tensors:
             op = t.op
             if 'workload' in op.attrs:
-                return args_to_workload(op.attrs['workload'])
+                return op.attrs['workload']
             wkl = traverse(op.input_tensors)
             if wkl:
                 return wkl

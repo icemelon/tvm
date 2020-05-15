@@ -18,7 +18,7 @@
 """Direct implementation of conv2d."""
 
 from tvm import autotvm
-from tvm.autotvm.task import deserialize_args
+#from tvm.autotvm.task import deserialize_args
 from tvm import te
 from topi.util import simplify, traverse_inline
 from topi.nn.pad import pad

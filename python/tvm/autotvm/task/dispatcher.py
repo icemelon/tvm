@@ -69,8 +69,6 @@ class DispatchContext(object):
         cfg : ConfigSpace
             The specific configuration.
         """
-        if isinstance(workload[-1], tuple) and workload[-1][0] == "__wildcard":
-            workload = workload[:-1]
         ret = self._query_inside(target, workload)
         if ret is None:
             ret = self._old_ctx.query(target, workload)
@@ -236,21 +234,14 @@ class ApplyHistoryBest(DispatchContext):
                 continue
 
             workload = inp.task.workload
-            wc_workload = inp.task.wildcard_workload
             # use target keys in tvm target system as key to build best map
             for k in inp.target.keys:
                 key = (k, workload)
                 _add_best(best_by_targetkey, key, inp, res)
-                if wc_workload is not None:
-                    key = (k, wc_workload)
-                    _add_best(best_by_targetkey, key, inp, res)
 
             # use model as key to build best map
             key = (inp.target.model, workload)
             _add_best(best_by_model, key, inp, res)
-            if wc_workload is not None:
-                key = (inp.target.model, wc_workload)
-                _add_best(best_by_model, key, inp, res)
 
         logger.debug("Finish loading %d records", counter)
 

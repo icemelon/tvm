@@ -29,12 +29,12 @@ from tvm import target as _target
 from tvm import runtime
 from tvm.ir import container
 from tvm.tir import expr
-from tvm.te import tensor, placeholder
-
+from tvm.te import tensor
 
 from ..util import get_const_int, get_const_tuple
 from .dispatcher import DispatchContext, ApplyConfig
 from .space import ConfigSpace
+from .workload import Workload
 
 
 logger = logging.getLogger('autotvm')
@@ -43,107 +43,6 @@ def _raise_error(*args, **kwargs):  # pylint: disable=unused-argument
     raise RuntimeError("The function of this task is not found. Possibly the function "
                        "of this task is registered in another python file "
                        "which is not imported in this run")
-
-
-def serialize_args(args):
-    """serialize arguments of a topi function to a hashable tuple.
-
-    Parameters
-    ----------
-    args: list of hashable or Tensor
-    """
-    vmap = collections.OrderedDict()
-
-    def _encode(x):
-        if isinstance(x, tensor.Tensor):
-            shape = _encode(list(x.shape))
-            return ('TENSOR', shape, x.dtype)
-        if isinstance(x, (tuple, list, container.Array)):
-            return tuple([_encode(a) for a in x])
-        if isinstance(x, (str, int, float, np.int, np.float)):
-            return x
-        if isinstance(x, expr.Var):
-            if x in vmap:
-                return vmap[x]
-            name = "_w%d" % len(vmap)
-            vmap[x] = name
-            return name
-        if isinstance(x, (expr.StringImm, expr.IntImm, expr.FloatImm)):
-            return x.value
-        if isinstance(x, runtime.container.String):
-            return str(x)
-        if x is None:
-            return None
-        raise RuntimeError('Do not support type "%s" in argument. Consider to use'
-                           'primitive types or tvm.tir.Var only' % type(x))
-    ret = []
-    for t in args:
-        ret.append(_encode(t))
-    if vmap:
-        wildcard = ["__wildcard"]
-        for v in vmap:
-            if isinstance(v, expr.SizeVar):
-                wildcard.append((vmap[v], v.name, "size_var", v.dtype))
-            else:
-                wildcard.append((vmap[v], v.name, "var", v.dtype))
-        ret.append(tuple(wildcard))
-    return tuple(ret)
-
-
-def deserialize_args(args):
-    """The inverse function of :code:`serialize_args`.
-
-    Parameters
-    ----------
-    args: list of hashable or Tensor
-    """
-    args = list(args)
-    vmap = {}
-    if isinstance(args[-1], tuple) and args[-1][0] == "__wildcard":
-        wildcard = args.pop()
-        for i in range(1, len(wildcard)):
-            wc_name, vname, var_type, dtype = wildcard[i]
-            assert var_type in ["var", "size_var"]
-            if var_type == "size_var":
-                v = expr.SizeVar(vname, dtype)
-            else:
-                v = expr.Var(vname, dtype)
-            vmap[wc_name] = v
-    ret = []
-    for t in args:
-        if isinstance(t, tuple) and t[0] == 'TENSOR':
-            shape = []
-            for dim in t[1]:
-                if isinstance(dim, str):
-                    assert dim in vmap
-                    shape.append(vmap[dim])
-                else:
-                    shape.append(dim)
-            ret.append(placeholder(shape=shape, dtype=t[2]))
-        else:
-            ret.append(t)
-    return ret
-
-
-def args_to_workload(args, task_name=None):
-    """Convert argument list to hashable workload tuple.
-    This function will convert list to tuple, tvm node to python value and
-    flatten te.tensor.Tensor to a tuple
-
-    Parameters
-    ----------
-    task_name : str
-        The AutoTVM task name
-
-    args : list of args
-        The arguments to the function
-
-    Returns
-    -------
-    ret: hashable
-        The hashable value
-    """
-    return (task_name,) + serialize_args(args) if task_name is not None else serialize_args(args)
 
 
 class Task(object):
@@ -156,11 +55,9 @@ class Task(object):
     args: Tuple
         Positional argument of func
     """
-    def __init__(self, name, args):
+    def __init__(self, name, workload):
         self.name = name
-        self.args = args
-        self.kwargs = {}  # currently unused
-        self.wildcard = None
+        self.workload = workload
 
         # init null config space
         self.config_space = None
@@ -170,24 +67,6 @@ class Task(object):
         self.flop = None
         self.target = None
         self.target_host = None
-
-    @property
-    def workload(self):
-        return (self.name,) + serialize_args(self.args)
-
-    @property
-    def wildcard_workload(self):
-        if self.wildcard is None:
-            return None
-        wkl = list(self.workload)
-        for arg_idx, axis, wildcard_idx in self.wildcard:
-            arg = list(wkl[arg_idx+1])
-            assert arg[0] == "TENSOR"
-            shape = list(arg[1])
-            shape[axis] = "_w%d" % wildcard_idx
-            arg[1] = tuple(shape)
-            wkl[arg_idx+1] = tuple(arg)
-        return tuple(wkl)
 
     def instantiate(self, config):
         """Instantiate this task function (template) with a config.
@@ -207,7 +86,7 @@ class Task(object):
         """
         config.flop = 0
         with ApplyConfig(config):
-            sch, arg_bufs = self.func(*self.args, **self.kwargs)
+            sch, arg_bufs = self.func(*self.workload.cargs)
         if not self.flop:
             config.flop = config.flop or compute_flop(sch)
             self.flop = config.flop
@@ -239,8 +118,8 @@ class Task(object):
         self.target_host = state["target_host"]
 
     def __repr__(self):
-        return "Task(func_name=%s, args=%s, kwargs=%s, workload=%s)" % (
-            self.name, self.args, self.kwargs, self.workload
+        return "Task(func_name=%s, args=%s, workload=%s)" % (
+            self.name, self.workload.args, self.workload
         )
 
 TASK_TABLE = {}
@@ -263,7 +142,6 @@ class TaskTemplate(object):
         self.fcustomized = None
 
     def __call__(self, *args, **kwargs):
-        args = deserialize_args(args)
         if self.fcustomized is None:
             return self._default_func(*args, **kwargs)
         assert callable(self.fcustomized)
@@ -462,8 +340,8 @@ def create(task_name, args, target, target_host=None):
     tsk: Task
         a task object
     """
-    args = serialize_args(args)
-    ret = Task(task_name, args)
+    wkl = Workload(task_name, args)
+    ret = Task(task_name, wkl)
 
     if isinstance(target, str):
         target = _target.create(target)
@@ -474,7 +352,7 @@ def create(task_name, args, target, target_host=None):
     ctx = ApplyConfig(ret.config_space)
     with ctx:
         with target:
-            sch, _ = ret.func(*args)
+            sch, _ = ret.func(*wkl.cargs)
             ret.config_space.code_hash = getattr(sch, 'code_hash', None)
 
     ret.flop = ret.config_space.flop or compute_flop(sch)

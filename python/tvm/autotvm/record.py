@@ -33,7 +33,7 @@ import numpy as np
 from .. import build, lower, target as _target
 from .. import __version__
 from . import task
-from .task import ConfigEntity, ApplyHistoryBest
+from .task import ConfigEntity, ApplyHistoryBest, Workload
 from .measure import MeasureInput, MeasureResult
 
 AUTOTVM_LOG_VERSION = 0.2
@@ -67,8 +67,8 @@ def measure_str_key(inp, include_config=True):
         The str representation of key
     """
     config_str = str(inp.config) if include_config else ""
-    return "".join([str(inp.target), inp.task.name, str(inp.task.args),
-                    str(inp.task.kwargs), config_str])
+    return "".join([str(inp.target), inp.task.name, str(inp.task.workload.serialized_args),
+                    str({}), config_str])
 
 
 def encode(inp, result, protocol='json'):
@@ -91,7 +91,7 @@ def encode(inp, result, protocol='json'):
     if protocol == 'json':
         json_dict = {
             "input": (str(inp.target),
-                      inp.task.name, inp.task.args, inp.task.kwargs),
+                      inp.task.name, inp.task.workload.serialized_args, {}),
 
             "config": inp.config.to_json_dict(),
 
@@ -108,8 +108,8 @@ def encode(inp, result, protocol='json'):
     if protocol == 'pickle':
         row = (str(inp.target),
                str(base64.b64encode(pickle.dumps([inp.task.name,
-                                                  inp.task.args,
-                                                  inp.task.kwargs])).decode()),
+                                                  inp.task.workload.args,
+                                                  {}])).decode()),
                str(base64.b64encode(pickle.dumps(inp.config)).decode()),
                str(base64.b64encode(pickle.dumps(tuple(result))).decode()),
                str(AUTOTVM_LOG_VERSION),
@@ -161,9 +161,10 @@ def decode(row, protocol='json'):
                 return int(x)
             return x
 
-        tsk = task.Task(clean_json_to_python(task_name), clean_json_to_python(task_args))
-        if "wildcard" in row:
-            tsk.wildcard = row["wildcard"]
+        task_name = clean_json_to_python(task_name)
+        task_args = clean_json_to_python(task_args)
+        wkl = Workload.from_serialized((task_name,) + task_args)
+        tsk = task.Task(task_name, wkl)
         config = ConfigEntity.from_json_dict(row["config"])
         inp = MeasureInput(tgt, tsk, config)
         result = MeasureResult(*[tuple(x) if isinstance(x, list) else x for x in row["result"]])
