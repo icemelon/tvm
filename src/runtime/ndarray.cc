@@ -252,8 +252,9 @@ void NDArray::CopyFromTo(const DLTensor* from,
     from_size, from->ctx, to->ctx, from->dtype, stream);
 }
 
-std::vector<int64_t> NDArray::Shape() const {
-  return get_mutable()->shape_;
+std::vector<int64_t> NDArray::Shape() const { return get_mutable()->shape_; }
+runtime::DataType NDArray::DataType() const {
+  return runtime::DataType(get_mutable()->dl_tensor.dtype);
 }
 
 TVM_REGISTER_OBJECT_TYPE(NDArray::Container);
