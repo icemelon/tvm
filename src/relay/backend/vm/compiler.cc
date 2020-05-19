@@ -208,6 +208,9 @@ TreeObjectPtr BuildDecisionTreeFromClauses(MatchValuePtr data, tvm::Array<Clause
 
 std::vector<int64_t> ToAllocTensorShape(NDArray shape) {
   std::vector<int64_t> raw_shape;
+  if (shape->ndim == 0) {
+    return raw_shape;
+  }
   CHECK_EQ(shape->ndim, 1u);
   CHECK_EQ(shape->dtype.code, 0U)
     << "The dtype of constant shape must be int32 or int64, but got "
