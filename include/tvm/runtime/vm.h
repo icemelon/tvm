@@ -116,6 +116,7 @@ enum class Opcode {
   Fatal = 15U,
   AllocStorage = 16U,
   ReshapeTensor = 17U,
+  DeviceCopy = 18U,
 };
 
 /*! \brief A single virtual machine instruction.
@@ -248,6 +249,13 @@ struct Instruction {
     struct /* ReshapeTensor Operands */ {
       RegName tensor;
       RegName new_shape;
+    };
+    struct /* DeviceCopy Operands */ {
+      RegName src;
+      /*! \brief The source device type. */
+      Index src_device_type;
+      /*! \brief The destination device type. */
+      Index dst_device_type;
     };
   };
 
@@ -393,6 +401,9 @@ struct Instruction {
                                   Index device_type, RegName dst);
 
   static Instruction ReshapeTensor(RegName tensor, RegName new_shape, RegName dst);
+
+  static Instruction DeviceCopy(RegName src, Index src_device_type, Index dst_device_type,
+                                RegName dst);
 
   Instruction();
   Instruction(const Instruction& instr);

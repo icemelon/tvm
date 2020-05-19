@@ -23,9 +23,12 @@ from collections import defaultdict
 
 from ..expr_functor import ExprVisitor
 from ..function import Function
-from .. import op
-from ... import register_func
+from .. import op, expr as _expr
+from ... import register_func, cpu
 from ..._ffi.runtime_ctypes import TVMContext
+
+import sys
+sys.setrecursionlimit(900000)
 
 
 def is_primitive(call):
@@ -44,6 +47,29 @@ def is_primitive(call):
     return hasattr(call, 'op') and hasattr(call.op, 'attrs') and \
            hasattr(call.op.attrs, 'Primitive') and int(call.op.attrs.Primitive) == 1
 
+
+def is_device_copy(call):
+    """Check if a call node is a device copy call.
+
+    Parameters
+    ----------
+    call : tvm.relay.Call
+        The call node to be checked.
+
+    Returns
+    -------
+    ret : Boolean
+        True if the call is a device copy call. Otherwise, false.
+    """
+    if not isinstance(call, _expr.Call):
+        return False
+    if call.op == op.op.get("device_copy"):
+        return True
+
+    if not isinstance(call.op, Function):
+        return False
+    return isinstance(call.op.body, _expr.Call) and \
+            call.op.body.op == op.op.get("device_copy")
 
 class DeviceDomain:
     """A class to represent the device of a domain, i.e. a segment of relay
@@ -237,7 +263,7 @@ class ContextAnalysis(ExprVisitor):
         dst_dev_type = device_type(TVMContext(dst_dev_type, 0))
         self.unify(self.device_for(output), dst_dev_type)
 
-    def unify_call(self, call_op, inputs, outputs):
+    def unify_call(self, call_op, inputs, outputs, device=None):
         """Unify the domain of inputs and outputs of a relay Call.
 
         Parameters
@@ -262,7 +288,7 @@ class ContextAnalysis(ExprVisitor):
         needs to be handled different as it copies data from one device to
         another.
         """
-        device = bottom()
+        device = device if device else bottom()
         for arg in inputs:
             device = self.unify(device, self.device_for(arg))
 
@@ -274,28 +300,57 @@ class ContextAnalysis(ExprVisitor):
         return device
 
     def visit_call(self, call):
-        if call.op == op.op.get("device_copy"):
-            (input_tensor,) = call.args
-            # Device copy op only has one input which is now annotated with the
-            # same device to the source device type of the device copy op.
-            # The call itself has the same device type to the destination.
-            self.device_copy(input_tensor, call,
-                             call.attrs.src_dev_type,
-                             call.attrs.dst_dev_type)
+        if is_device_copy(call):
+            if isinstance(call.op, Function):
+                assert isinstance(call.op.body, _expr.Call)
+                call_attr = call.op.body.attrs
+                src_dev_type = call_attr.src_dev_type
+                dst_dev_type = call_attr.dst_dev_type
+                src_dev_type = device_type(TVMContext(src_dev_type, 0))
+                dst_dev_type = device_type(TVMContext(dst_dev_type, 0))
+                device = self.unify(src_dev_type, self.device_for(call.args[0]))
+                device = self.unify(src_dev_type,
+                                    self.device_for(call.op.params[0]))
+
+                self.unify(dst_dev_type, self.device_for(call.op))
+                self.unify(dst_dev_type, self.device_for(call.op.body))
+                self.unify(dst_dev_type, self.device_for(call))
+            else:
+                (input_tensor,) = call.args
+                # Device copy op only has one input which is now annotated with the
+                # same device to the source device type of the device copy op.
+                # The call itself has the same device type to the destination.
+                self.device_copy(input_tensor, call,
+                                 call.attrs.src_dev_type,
+                                 call.attrs.dst_dev_type)
         elif call.op == op.op.get("memory.alloc_storage"):
             call_dev = device_type(TVMContext(call.attrs.device_type,
                                               call.attrs.device_id))
             self.unify(self.device_for(call), call_dev)
             # The arguments should be one the same device as the call.
+            self.visit(call.args[0])
             size = call.args[0]
+            self.visit(call.args[1])
             alignment = call.args[1]
             self.unify(self.device_for(size), call_dev)
             self.unify(self.device_for(alignment), call_dev)
         elif call.op == op.op.get("memory.alloc_tensor"):
             storage = call.args[0]
             shape = call.args[1]
+            self.visit(call.args[1])
             self.unify(self.device_for(storage), self.device_for(call))
             self.unify(self.device_for(shape), self.device_for(call))
+        elif call.op == op.op.get("memory.shape_func"):
+            shape_func_domain = device_type(cpu(0))
+            # No need to union the op of a shape_func as shape_func doesn't
+            # invoke the op itself. It should be handled by invoke_tvm_op.
+            # Therefore, we skip call.args[0] here.
+            self.unify_call(call, call.args[1].fields,
+                            call.args[2].fields, shape_func_domain)
+            for arg in call.args[1]:
+                self.visit(arg)
+            for arg in call.args[2]:
+                self.visit(arg)
         elif call.op == op.op.get("memory.invoke_tvm_op"):
             if call.args[0].body.op == op.op.get("device_copy"):
                 input_tensor = call.args[1][0]
@@ -304,8 +359,9 @@ class ContextAnalysis(ExprVisitor):
                                  call.attrs.src_dev_type,
                                  call.attrs.dst_dev_type)
             else:
-                self.unify_call(call.args[0], call.args[1].fields,
-                                call.args[2].fields)
+                device = self.unify_call(call.args[0], call.args[1].fields,
+                                         call.args[2].fields)
+                self.unify(self.device_for(call), device)
                 super().visit_call(call)
         elif isinstance(call.op, Function):
             device = bottom()
@@ -317,11 +373,14 @@ class ContextAnalysis(ExprVisitor):
                 self.visit(param)
                 device = self.unify(device, self.device_for(param))
 
+            # self.unify(device, self.device_for(call.op))
+
             out_device = self.device_for(call.op)
             self.unify(self.device_for(call), out_device)
+            self.unify(self.device_for(call.op.body), out_device)
             super().visit_call(call)
         else:
-            self.unify_call(call.op, call.args, [call])
+            self.unify_call(call, call.args, [call])
             super().visit_call(call)
 
     def visit_let(self, let):

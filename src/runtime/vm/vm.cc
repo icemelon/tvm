@@ -145,6 +145,11 @@ Instruction::Instruction(const Instruction& instr) {
       this->tensor = instr.tensor;
       this->new_shape = instr.new_shape;
       return;
+    case Opcode::DeviceCopy:
+      this->src = instr.src;
+      this->src_device_type = instr.src_device_type;
+      this->dst_device_type = instr.dst_device_type;
+      return;
     default:
       std::ostringstream out;
       out << "Invalid instruction " << static_cast<int>(instr.op);
@@ -241,6 +246,11 @@ Instruction& Instruction::operator=(const Instruction& instr) {
       this->tensor = instr.tensor;
       this->new_shape = instr.new_shape;
       return *this;
+    case Opcode::DeviceCopy:
+      this->src = instr.src;
+      this->src_device_type = instr.src_device_type;
+      this->dst_device_type = instr.dst_device_type;
+      return *this;
     default:
       std::ostringstream out;
       out << "Invalid instruction " << static_cast<int>(instr.op);
@@ -262,6 +272,7 @@ Instruction::~Instruction() {
     case Opcode::AllocStorage:
     case Opcode::Fatal:
     case Opcode::ReshapeTensor:
+    case Opcode::DeviceCopy:
       return;
     case Opcode::AllocTensor:
       delete this->alloc_tensor.shape;
@@ -485,6 +496,17 @@ Instruction Instruction::ReshapeTensor(RegName tensor, RegName new_shape,
   return instr;
 }
 
+Instruction Instruction::DeviceCopy(RegName src, Index src_device_type, Index dst_device_type,
+                                    RegName dst) {
+  Instruction instr;
+  instr.op = Opcode::DeviceCopy;
+  instr.dst = dst;
+  instr.src = src;
+  instr.src_device_type = src_device_type;
+  instr.dst_device_type = dst_device_type;
+  return instr;
+}
+
 void DLDatatypePrint(std::ostream& os, const DLDataType& dtype) {
   switch (dtype.code) {
     case kDLInt:
@@ -619,6 +641,13 @@ void InstructionPrint(std::ostream& os, const Instruction& instr) {
       os << "reshape_tensor $" << instr.dst
          << " $" << instr.tensor
          << " $" << instr.new_shape;
+      break;
+    }
+    case Opcode::DeviceCopy: {
+      os << "device_copy $" << instr.dst
+         << " $" << instr.src
+         << " " << instr.src_device_type
+         << " " << instr.dst_device_type;
       break;
     }
     default:
@@ -1126,6 +1155,21 @@ void VirtualMachine::RunLoop() {
 
         auto out_tensor = tensor_arr.CreateView(shape, tensor_arr->dtype);
         WriteRegister(instr.dst, out_tensor);
+        pc_++;
+        goto main_loop;
+      }
+      case Opcode::DeviceCopy: {
+        auto tensor_src = ReadRegister(instr.src);
+        NDArray src_data = Downcast<NDArray>(tensor_src);
+        DLContext src_ctx = src_data->ctx;
+        CHECK_EQ(static_cast<Index>(src_ctx.device_type), instr.src_device_type);
+
+        DLContext dst_ctx;
+        dst_ctx.device_type = static_cast<DLDeviceType>(instr.dst_device_type);
+        dst_ctx.device_id = 0;
+
+        NDArray dst_data = src_data.CopyTo(dst_ctx);
+        WriteRegister(instr.dst, dst_data);
         pc_++;
         goto main_loop;
       }

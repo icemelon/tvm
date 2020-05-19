@@ -83,6 +83,7 @@ class ConstantFolder : public ExprMutator {
   explicit ConstantFolder(FInterpreter executor, IRModule module)
       : executor_(executor),
         module_(module),
+        device_copy_op_(Op::Get("device_copy")),
         shape_of_op_(Op::Get("shape_of")),
         invoke_tvm_op_(Op::Get("memory.invoke_tvm_op")),
         shape_func_op_(Op::Get("memory.shape_func")),
@@ -134,6 +135,7 @@ class ConstantFolder : public ExprMutator {
 
     // We should think about potentially constant evaluation over these ops too.
     if (call->op == invoke_tvm_op_ ||
+        call->op == device_copy_op_ ||
         call->op == shape_func_op_ ||
         call->op == alloc_tensor_op_ ||
         call->op == alloc_storage_op_) {
@@ -172,6 +174,7 @@ class ConstantFolder : public ExprMutator {
   IRModule module_;
 
   // Cache the following ops for equivalence checking in this pass.
+  const Op& device_copy_op_;
   const Op& shape_of_op_;
   const Op& invoke_tvm_op_;
   const Op& shape_func_op_;

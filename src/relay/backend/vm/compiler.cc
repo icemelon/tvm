@@ -306,10 +306,10 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
 
     std::vector<Index> params_device_type;
     for (const auto& it : func->params) {
-      if (targets_.size() > 1) {
-        CHECK_GT(expr_device_map_.count(it), 0U);
+      if (!expr_device_map_.empty()) {
         params_device_type.push_back(expr_device_map_[it].device_type);
       } else {
+        CHECK_EQ(targets_.size(), 1U);
         params_device_type.push_back((targets_.begin())->first);
       }
     }
@@ -337,6 +337,7 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
       case Opcode::Move:
       case Opcode::InvokeClosure:
       case Opcode::ReshapeTensor:
+      case Opcode::DeviceCopy:
         last_register_ = instr.dst;
         break;
       case Opcode::InvokePacked:
@@ -539,8 +540,9 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
       target = tvm::target::ext_dev();
     } else {
       // Next generate the invoke instruction.
-      if (targets_.size() == 1) {
+      if (expr_device_map_.empty()) {
         // homogeneous execution.
+        CHECK_EQ(targets_.size(), 1U);
         const auto& it = targets_.begin();
         target = (*it).second;
       } else {
@@ -686,6 +688,18 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
           auto reshape_attrs = attrs.as<ReshapeTensorAttrs>();
           CHECK(reshape_attrs != nullptr) << "must be the reshape tensor attrs";
           Emit(Instruction::ReshapeTensor(tensor_reg, shape_reg, NewRegister()));
+      }).Match("device_copy",
+        [this](const Array<Expr>& args, const Attrs& attrs, const Array<Type>& type_arg) {
+          CHECK_EQ(args.size(), 1U);
+          this->VisitExpr(args[0]);
+          auto src_reg = last_register_;
+
+          auto device_copy_attrs = attrs.as<DeviceCopyAttrs>();
+          CHECK(device_copy_attrs != nullptr) << "Must be the device copy attrs";
+          Index src_device_type = device_copy_attrs->src_dev_type;
+          Index dst_device_type = device_copy_attrs->dst_dev_type;
+          Emit(Instruction::DeviceCopy(src_reg, src_device_type, dst_device_type, NewRegister()));
+
         });
       matcher(GetRef<Call>(call_node));
       return;

@@ -567,8 +567,8 @@ def test_arange_with_dynamic_shape():
     data = np.random.rand(10, 5, 3).astype('float32')
     mod = tvm.IRModule()
     mod["main"] = relay.Function([x], y3)
-    for kind in ["debug", "vm"]:
-        ex = relay.create_executor(kind, mod=mod, ctx=tvm.cpu(), target="llvm")
+    for kind in ["vm"]:
+        ex = relay.create_executor(kind, mod=mod, ctx=tvm.gpu(), target="cuda")
         result = ex.evaluate()(data)
         tvm.testing.assert_allclose(result.asnumpy(), np.array(range(10)).astype("int32")+1)
 

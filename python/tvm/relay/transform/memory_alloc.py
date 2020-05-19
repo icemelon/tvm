@@ -34,9 +34,10 @@ from ..backend import compile_engine
 from ..op.memory import flatten_tuple_type, from_tuple_type, to_tuple_type
 from ..analysis.context_analysis import ContextAnalysis, mk_analysis_annotator, is_primitive
 from ...import cpu
+from ..._ffi.runtime_ctypes import TVMContext
 
 
-logging.basicConfig(level=logging.DEBUG)
+# logging.basicConfig(level=logging.DEBUG)
 
 class IsReshapePass(ExprVisitor):
     def __init__(self):
@@ -54,6 +55,19 @@ def is_reshape(func):
     is_reshape_pass = IsReshapePass()
     is_reshape_pass.visit(func)
     return is_reshape_pass.is_reshape
+
+
+def is_device_copy(func):
+    """
+    Check if the current relay expression is shape_of call. We can simply check
+    the body of it if it is a function becase the shape_of op is opaque.
+    """
+    if isinstance(func, Function):
+        body = func.body
+        return isinstance(body, expr.Call) and body.op == op.get("device_copy")
+    if isinstance(func, expr.Call):
+        return body.op == op.get("device_copy")
+    return False
 
 
 class ManifestAllocPass(ExprMutator):
@@ -74,7 +88,7 @@ class ManifestAllocPass(ExprMutator):
 
     def get_context(self, expr):
         # TODO(@zhiics) Need to add all newly created epxressions to the map.
-        # assert expr in self.context_analysis, expr.astext(False)
+        assert expr in self.context_analysis, expr.astext(False)
         if expr in self.context_analysis:
             return self.context_analysis[expr]
         else:
@@ -180,6 +194,7 @@ class ManifestAllocPass(ExprMutator):
                     ctx = self.get_context(subexp)
                     if ctx.device_type != cpu_ctx.device_type:
                         subexp = self.device_copy(scope, subexp, ctx, cpu_ctx, j)
+                        self.context_analysis[subexp] = cpu_ctx
                     let_in_arg = scope.let("in_arg_{0}".format(input_pos + j), subexp)
                     sh_of = self.visit(self.shape_of(let_in_arg))
                     shape_func_ins.append(
@@ -217,30 +232,27 @@ class ManifestAllocPass(ExprMutator):
         self.context_analysis[shape_call] = cpu_ctx
         scope.let("shape_func", shape_call)
 
-        copy_out_shapes = []
-        for i, alloc in enumerate(out_shapes):
-            if ctx.device_type != cpu_ctx.device_type:
-                copy = self.device_copy(scope, alloc, cpu_ctx, ctx, i)
-                copy_out_shapes.append(copy)
-
-        return copy_out_shapes if copy_out_shapes else out_shapes
+        return out_shapes
 
     def dynamic_invoke(self, scope, func, ins, new_args, out_types, ret_type):
         """Generate the code for invoking a TVM op with a dynamic shape."""
         out_shapes = self.emit_shape_func(scope, func, new_args)
         storages = []
+        cpu_ctx = nd.cpu(0)
+        func_ctx = self.get_context(func)
+        copy_out_shapes = []
         for i, (out_shape, out_type) in enumerate(zip(out_shapes, out_types)):
-            size = self.compute_storage_in_relay(
-                out_shape, out_type.dtype)
+            if func_ctx.device_type != cpu_ctx.device_type:
+                out_shape = self.device_copy(scope, out_shape, cpu_ctx, func_ctx, i)
+            copy_out_shapes.append(out_shape)
+            size = self.compute_storage_in_relay(out_shape, out_type.dtype)
             alignment = self.compute_alignment(out_type.dtype)
-            # Let CPU compute the shape func.
-            context = nd.cpu(0)
             sto = scope.let("storage_{i}".format(i=i), self.alloc_storage(
-                size, alignment, context, out_type.dtype))
+                size, alignment, func_ctx, out_type.dtype))
             storages.append(sto)
 
         outs = []
-        sh_ty_storage = zip(out_shapes, out_types, storages)
+        sh_ty_storage = zip(copy_out_shapes, out_types, storages)
         for i, (out_shape, out_type, storage) in enumerate(sh_ty_storage):
             alloc = self.alloc_tensor(
                 storage,
@@ -259,11 +271,20 @@ class ManifestAllocPass(ExprMutator):
         if self.is_dynamic(ret_type):
             out_shapes = self.emit_shape_func(scope, func, new_args)
             shape_expr = out_shapes[0]
+            inp = new_args[0]
+            inp_ctx = self.get_context(func)
+            cpu_ctx = nd.cpu(0)
+            if inp_ctx.device_type != cpu_ctx.device_type:
+                shape_expr = self.device_copy(scope, shape_expr, cpu_ctx,
+                                              inp_ctx, 0)
+            ret = self.reshape_tensor(inp, shape_expr, ret_type.shape)
+            self.context_analysis[ret] = cpu_ctx
+            return ret
         else:
             # constant output shape
             shape = [int(dim) for dim in ret_type.shape]
             shape_expr = expr.const(np.array(shape), dtype=self.compute_dtype)
-        return self.reshape_tensor(new_args[0], shape_expr, ret_type.shape)
+            return self.reshape_tensor(new_args[0], shape_expr, ret_type.shape)
 
     def is_dynamic(self, ret_type):
         is_dynamic = ty.type_has_any(ret_type)
@@ -284,6 +305,15 @@ class ManifestAllocPass(ExprMutator):
             if is_reshape(call.op):
                 # Handle op with only reshape
                 return self.emit_reshape_tensor(scope, call.op, new_args, ret_type)
+            if is_device_copy(call.op):
+                # Handle op with only reshape
+                if isinstance(call.op, Function):
+                    attr = call.op.body.attrs
+                else:
+                    attr = call.attr
+                return op.tensor.device_copy(new_args[0],
+                                             TVMContext(attr.src_dev_type, 0),
+                                             TVMContext(attr.dst_dev_type, 0))
             if self.is_dynamic(ret_type):
                 # Handle dynamic case.
                 return self.dynamic_invoke(scope, call.op, ins, new_args, out_types, ret_type)
