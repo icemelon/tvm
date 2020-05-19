@@ -334,7 +334,6 @@ class LiftConst(ExprMutator):
         bindings = []
         i = 0
         while isinstance(let, expr.Let):
-            print(i)
             new_var = self.visit(let.var)
             new_val = self.visit(let.value)
             bindings.append((new_var, new_val))
