@@ -121,6 +121,10 @@ class VirtualMachineDebug : public VirtualMachine {
 
   void AllocateStorage(const Instruction& instr) final;
 
+  void AllocTensor(const Instruction& instr) final;
+
+  void AllocTensorReg(const Instruction& instr) final;
+
   std::unordered_map<Index, std::string> packed_index_map_;
   Array<ProfileRecord> profile_records_;
 };

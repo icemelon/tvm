@@ -779,6 +779,10 @@ class VirtualMachine : public runtime::ModuleNode {
 
   virtual void AllocateStorage(const Instruction& instr);
 
+  virtual void AllocTensor(const Instruction& instr);
+
+  virtual void AllocTensorReg(const Instruction& instr);
+
   /*!
    * \brief Initialize the virtual machine for a set of contexts.
    * \param contexts The set of TVM contexts.

@@ -125,6 +125,32 @@ void VirtualMachineDebug::AllocateStorage(const Instruction& instr) {
   profile_records_.push_back(AllocStorageRecord(n));
 }
 
+void VirtualMachineDebug::AllocTensor(const Instruction& instr) {
+  auto begin = std::chrono::high_resolution_clock::now();
+  VirtualMachine::AllocTensor(instr);
+  auto end = std::chrono::high_resolution_clock::now();
+  double duration =
+      std::chrono::duration_cast<std::chrono::duration<double> >(end - begin).count();
+
+  auto n = make_object<ProfileRecordObj>();
+  n->opcode = static_cast<int32_t>(Opcode::AllocTensor);
+  n->duration = duration;
+  profile_records_.push_back(ProfileRecord(n));
+}
+
+void VirtualMachineDebug::AllocTensorReg(const Instruction& instr) {
+  auto begin = std::chrono::high_resolution_clock::now();
+  VirtualMachine::AllocTensorReg(instr);
+  auto end = std::chrono::high_resolution_clock::now();
+  double duration =
+      std::chrono::duration_cast<std::chrono::duration<double> >(end - begin).count();
+
+  auto n = make_object<ProfileRecordObj>();
+  n->opcode = static_cast<int32_t>(Opcode::AllocTensorReg);
+  n->duration = duration;
+  profile_records_.push_back(ProfileRecord(n));
+}
+
 runtime::Module CreateVirtualMachineDebug(const Executable* exec) {
   auto vm = make_object<VirtualMachineDebug>();
   vm->LoadExecutable(exec);

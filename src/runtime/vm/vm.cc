@@ -877,6 +877,42 @@ inline void VirtualMachine::AllocateStorage(const Instruction& instr) {
   WriteRegister(instr.dst, storage);
 }
 
+inline void VirtualMachine::AllocTensor(const Instruction& instr) {
+  auto shape = std::vector<int64_t>(instr.alloc_tensor.ndim);
+
+  for (uint32_t i = 0; i < instr.alloc_tensor.ndim; ++i) {
+    shape[i] = instr.alloc_tensor.shape[i];
+  }
+
+  auto storage_obj = ReadRegister(instr.alloc_tensor.storage);
+  auto storage = Downcast<Storage>(storage_obj);
+  auto obj = storage->AllocNDArray(0, shape, instr.alloc_tensor.dtype);
+
+  WriteRegister(instr.dst, obj);
+}
+
+inline void VirtualMachine::AllocTensorReg(const Instruction& instr) {
+  DLContext cpu_ctx;
+  cpu_ctx.device_type = kDLCPU;
+  cpu_ctx.device_id = 0;
+  auto shape_tensor_obj = ReadRegister(instr.alloc_tensor_reg.shape_register);
+  const auto shape_arr = Downcast<NDArray>(shape_tensor_obj);
+  NDArray shape_tensor = shape_arr.CopyTo(cpu_ctx);
+  const DLTensor* dl_tensor = shape_tensor.operator->();
+  CHECK_EQ(dl_tensor->dtype.code, 0u);
+  CHECK_EQ(dl_tensor->dtype.bits, 64);
+  int64_t* dims = reinterpret_cast<int64_t*>(dl_tensor->data);
+  auto num_dims = shape_tensor->shape[0];
+  auto shape = std::vector<int64_t>(num_dims);
+  shape.assign(dims, dims + num_dims);
+
+  auto storage_obj = ReadRegister(instr.alloc_tensor_reg.storage);
+  auto storage = Downcast<Storage>(storage_obj);
+  auto obj = storage->AllocNDArray(0, shape, instr.alloc_tensor_reg.dtype);
+
+  WriteRegister(instr.dst, obj);
+}
+
 void VirtualMachine::RunLoop() {
   CHECK(this->exec_);
   CHECK(this->code_);
@@ -1005,40 +1041,12 @@ void VirtualMachine::RunLoop() {
         goto main_loop;
       }
       case Opcode::AllocTensor: {
-        auto shape = std::vector<int64_t>(instr.alloc_tensor.ndim);
-
-        for (uint32_t i = 0; i < instr.alloc_tensor.ndim; ++i) {
-          shape[i] = instr.alloc_tensor.shape[i];
-        }
-
-        auto storage_obj = ReadRegister(instr.alloc_tensor.storage);
-        auto storage = Downcast<Storage>(storage_obj);
-        auto obj = storage->AllocNDArray(0, shape, instr.alloc_tensor.dtype);
-
-        WriteRegister(instr.dst, obj);
+        AllocTensor(instr);
         pc_++;
         goto main_loop;
       }
       case Opcode::AllocTensorReg: {
-        DLContext cpu_ctx;
-        cpu_ctx.device_type = kDLCPU;
-        cpu_ctx.device_id = 0;
-        auto shape_tensor_obj = ReadRegister(instr.alloc_tensor_reg.shape_register);
-        const auto shape_arr = Downcast<NDArray>(shape_tensor_obj);
-        NDArray shape_tensor = shape_arr.CopyTo(cpu_ctx);
-        const DLTensor* dl_tensor = shape_tensor.operator->();
-        CHECK_EQ(dl_tensor->dtype.code, 0u);
-        CHECK_EQ(dl_tensor->dtype.bits, 64);
-        int64_t* dims = reinterpret_cast<int64_t*>(dl_tensor->data);
-        auto num_dims = shape_tensor->shape[0];
-        auto shape = std::vector<int64_t>(num_dims);
-        shape.assign(dims, dims + num_dims);
-
-        auto storage_obj = ReadRegister(instr.alloc_tensor_reg.storage);
-        auto storage = Downcast<Storage>(storage_obj);
-        auto obj = storage->AllocNDArray(0, shape, instr.alloc_tensor_reg.dtype);
-
-        WriteRegister(instr.dst, obj);
+        AllocTensorReg(instr);
         pc_++;
         goto main_loop;
       }
