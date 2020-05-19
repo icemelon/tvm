@@ -74,11 +74,35 @@ class VirtualMachineProfiler(vm.VirtualMachine):
         header = ["Kernel Name", "Time(us)", "Time(%)", "Shape", "Inputs", "Outputs"]
         sep    = ["-----------", "--------", "-------", "-----", "------", "-------"]
 
-        kernel_time = 0
-        num_allocs = 0
-        alloc_time = 0
+        # Move = 0U,
+        # Ret = 1U,
+        # Invoke = 2U,
+        # InvokeClosure = 3U,
+        # InvokePacked = 4U,
+        # AllocTensor = 5U,
+        # AllocTensorReg = 6U,
+        # AllocADT = 7U,
+        # AllocClosure = 8U,
+        # GetField = 9U,
+        # If = 10U,
+        # LoadConst = 11U,
+        # Goto = 12U,
+        # GetTag = 13U,
+        # LoadConsti = 14U,
+        # Fatal = 15U,
+        # AllocStorage = 16U,
+        # ReshapeTensor = 17U,
+
+        total_time = 0
+        instr_lat = {}
         data = []
         for rec in res:
+            lat = rec.duration * 1e6
+            if rec.opcode not in instr_lat:
+                instr_lat[rec.opcode] = []
+            instr_lat[rec.opcode].append(lat)
+            total_time += lat
+
             if isinstance(rec, KernelRecord):
                 kernel_name = rec.kernel_name
                 time_us = round(rec.duration * 1e6, 3)
@@ -86,12 +110,8 @@ class VirtualMachineProfiler(vm.VirtualMachine):
                 outputs = rec.num_outputs
                 shape = str(rec.output_shapes[0])
                 data.append([kernel_name, time_us, shape, inputs, outputs])
-                kernel_time += time_us
-            elif isinstance(rec, AllocStorageRecord):
-                num_allocs += 1
-                alloc_time += rec.duration * 1e6
 
-        total_time = kernel_time + alloc_time
+        kernel_time = sum(instr_lat[4])
         for row in data:
             time_percent = round((row[1] / kernel_time) * 100, 3)
             row.insert(2, time_percent)
@@ -108,12 +128,20 @@ class VirtualMachineProfiler(vm.VirtualMachine):
             fmt += f"{{:<{max_len + 2}}}"
 
         log = [f"Total time: {total_time:.3f} us",
-               f"Kernel time: {kernel_time:.3f} us",
-               f"Allocation time: {alloc_time:.3f} us",
-               f"Number of allocation: {num_allocs}",
-               "",
-               fmt.format(*header),
-               fmt.format(*sep)]
+               f"Number of InvokePacked: {len(instr_lat[4])}",
+               f"InvokePacked time: {kernel_time:.3f} us",
+               f"Number of AllocStorage: {len(instr_lat[16])}",
+               f"AllocStorage time: {sum(instr_lat[16]):.3f} us"]
+        if 5 in instr_lat:
+            log.append(f"Number of AllocTensor: {len(instr_lat[5])}")
+            log.append(f"AllocTensor time: {sum(instr_lat[5]):.3f} us")
+        if 6 in instr_lat:
+            log.append(f"Number of AllocTensorReg: {len(instr_lat[6])}")
+            log.append(f"AllocTensorReg time: {sum(instr_lat[6]):.3f} us")
+        log.append("")
+        log.append(fmt.format(*header))
+        log.append(fmt.format(*sep))
+
         for row in data:
             log.append(fmt.format(*row))
         return "\n".join(log)
