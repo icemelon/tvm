@@ -28,7 +28,7 @@ from ... import register_func, cpu
 from ..._ffi.runtime_ctypes import TVMContext
 
 import sys
-sys.setrecursionlimit(900000)
+sys.setrecursionlimit(5000000)
 
 
 def is_primitive(call):
@@ -235,19 +235,19 @@ class ContextAnalysis(ExprVisitor):
         """
         return self.lookup(self.expr_to_device[expr])
 
-    def device_copy(self, inp, output, src_dev_type, dst_dev_type):
+    def device_copy(self, inps, outputs, src_dev_type, dst_dev_type):
         """Unify the device context for device copy node. Device copy node is
         the only node that carries information in the input program. The device
         attribute of other nodes are propagated from it.
 
         Parameters
         ----------
-        inp : tvm.relay.Expr
+        inps : List[tvm.relay.Expr]
             The input expression to the device copy node. The device type of
             the input should be the same as the source device type of the
             copy node.
 
-        output : tvm.relay.Expr
+        outputs : List[tvm.relay.Expr]
             The output expression of the device copy node. The device type of
             the output should be the same as the destination device type of the
             copy node.
@@ -259,9 +259,12 @@ class ContextAnalysis(ExprVisitor):
             The destination device type of the copy node.
         """
         src_dev_type = device_type(TVMContext(src_dev_type, 0))
-        self.unify(self.device_for(inp), src_dev_type)
+        for inp in inps:
+            self.unify(self.device_for(inp), src_dev_type)
+
         dst_dev_type = device_type(TVMContext(dst_dev_type, 0))
-        self.unify(self.device_for(output), dst_dev_type)
+        for output in outputs:
+            self.unify(self.device_for(output), dst_dev_type)
 
     def unify_call(self, call_op, inputs, outputs, device=None):
         """Unify the domain of inputs and outputs of a relay Call.
@@ -301,28 +304,25 @@ class ContextAnalysis(ExprVisitor):
 
     def visit_call(self, call):
         if is_device_copy(call):
+            inps = [call.args[0]]
+            outs = [call]
             if isinstance(call.op, Function):
-                assert isinstance(call.op.body, _expr.Call)
-                call_attr = call.op.body.attrs
-                src_dev_type = call_attr.src_dev_type
-                dst_dev_type = call_attr.dst_dev_type
-                src_dev_type = device_type(TVMContext(src_dev_type, 0))
-                dst_dev_type = device_type(TVMContext(dst_dev_type, 0))
-                device = self.unify(src_dev_type, self.device_for(call.args[0]))
-                device = self.unify(src_dev_type,
-                                    self.device_for(call.op.params[0]))
-
-                self.unify(dst_dev_type, self.device_for(call.op))
-                self.unify(dst_dev_type, self.device_for(call.op.body))
-                self.unify(dst_dev_type, self.device_for(call))
+                # device_copy is fused, propagate device to the fused function
+                inps.append(call.op.params[0])
+                outs.append(call.op)
+                body = call.op.body
+                assert isinstance(body, _expr.Call) and is_device_copy(body)
+                outs.append(call.op.body)
+                src_dev_type = call.op.body.attrs.src_dev_type
+                dst_dev_type = call.op.body.attrs.dst_dev_type
             else:
-                (input_tensor,) = call.args
-                # Device copy op only has one input which is now annotated with the
-                # same device to the source device type of the device copy op.
-                # The call itself has the same device type to the destination.
-                self.device_copy(input_tensor, call,
-                                 call.attrs.src_dev_type,
-                                 call.attrs.dst_dev_type)
+                src_dev_type = call.attrs.src_dev_type
+                dst_dev_type = call.attrs.dst_dev_type
+
+           # Device copy op only has one input which is now annotated with the
+           # same device to the source device type of the device copy op.
+           # The call itself has the same device type to the destination.
+            self.device_copy(inps, outs, src_dev_type, dst_dev_type)
         elif call.op == op.op.get("memory.alloc_storage"):
             call_dev = device_type(TVMContext(call.attrs.device_type,
                                               call.attrs.device_id))
@@ -353,8 +353,8 @@ class ContextAnalysis(ExprVisitor):
                 self.visit(arg)
         elif call.op == op.op.get("memory.invoke_tvm_op"):
             if call.args[0].body.op == op.op.get("device_copy"):
-                input_tensor = call.args[1][0]
-                output_tensor = call.args[2][0]
+                input_tensor = call.args[1]
+                output_tensor = call.args[2]
                 self.device_copy(input_tensor, output_tensor,
                                  call.attrs.src_dev_type,
                                  call.attrs.dst_dev_type)
