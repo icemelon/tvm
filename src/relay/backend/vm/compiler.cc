@@ -489,20 +489,20 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
       op_index = context_->cached_funcs.size();
       context_->cached_funcs.push_back(cfunc);
     } else {
+      tir::PrimFunc pfunc;
       if (cfunc->dispatch_func->functions.size() > 0) {
-        // do not cache funcs with multiple kernels
-        op_index = context_->cached_funcs.size();
-        context_->cached_funcs.push_back(cfunc);
+        CHECK_EQ(cfunc->dispatch_func->functions.size(), 1);
+        pfunc = Downcast<tir::PrimFunc>((*cfunc->dispatch_func->functions.begin()).second);
       } else {
         CHECK_EQ(cfunc->funcs->functions.size(), 1);
-        auto pfunc = Downcast<tir::PrimFunc>((*cfunc->funcs->functions.begin()).second);
-        if (context_->seen_funcs.find(pfunc) == context_->seen_funcs.end()) {
-          op_index = context_->cached_funcs.size();
-          context_->cached_funcs.push_back(cfunc);
-          context_->seen_funcs[pfunc] = op_index;
-        } else {
-          op_index = context_->seen_funcs[pfunc];
-        }
+        pfunc = Downcast<tir::PrimFunc>((*cfunc->funcs->functions.begin()).second);
+      }
+      if (context_->seen_funcs.find(pfunc) == context_->seen_funcs.end()) {
+        op_index = context_->cached_funcs.size();
+        context_->cached_funcs.push_back(cfunc);
+        context_->seen_funcs[pfunc] = op_index;
+      } else {
+        op_index = context_->seen_funcs[pfunc];
       }
     }
 
@@ -864,9 +864,9 @@ void VMCompiler::Lower(IRModule mod,
   }
 
   // update primitive function map
-  size_t primitive_index = 0;
-  for (const auto& cfunc : context_.cached_funcs) {
-    exec_->primitive_map.insert({cfunc->func_name, primitive_index++});
+  for (size_t i = 0; i < context_.cached_funcs.size(); ++i) {
+    const auto& cfunc = context_.cached_funcs[i];
+    exec_->primitive_map.emplace(cfunc->func_name, i);
   }
 }
 

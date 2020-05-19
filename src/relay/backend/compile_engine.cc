@@ -800,8 +800,10 @@ class CompileEngineImpl : public CompileEngineNode {
       // NOTE: array will copy on write.
       Array<te::Tensor> all_args = cache_node->inputs;
       all_args.extend(cache_node->outputs[i]);
-      IRModule func;
+      // Within the specialized condition context
+      With<te::SpecializedCondition> sc_ctx(cache_node->specialized_conditions[i]);
       // lower the function
+      IRModule func;
       if (const auto* f = runtime::Registry::Get("relay.backend.lower")) {
         func = (*f)(
             cfunc->schedules[i], all_args, func_name, key->source_func);
