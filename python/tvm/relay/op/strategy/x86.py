@@ -17,11 +17,13 @@
 """Definition of x86 operator strategy."""
 # pylint: disable=invalid-name,unused-argument,wildcard-import,unused-wildcard-import
 import logging
+import numpy as np
 
 import tvm
 from tvm import autotvm
 from tvm.te import SpecializedCondition
 import topi
+from topi.util import get_const_tuple
 from .generic import *
 from .. import op as _op
 
@@ -283,7 +285,42 @@ def batch_matmul_strategy_cpu(attrs, inputs, out_type, target):
         strategy.add_implementation(wrap_compute_batch_matmul(topi.x86.batch_matmul_cblas),
                                     wrap_topi_schedule(topi.x86.schedule_batch_matmul_cblas),
                                     name="batch_matmul_cblas.x86",
-                                    plevel=15)
+                                    plevel=100)
+    b, m, k = get_const_tuple(inputs[0].shape)
+    _, n, _ = get_const_tuple(inputs[1].shape)
+    var_factors = {}
+    if isinstance(m, tvm.tir.Var):
+        var_factors[m] = []
+    if isinstance(n, tvm.tir.Var):
+        var_factors[n] = []
+    if isinstance(k, tvm.tir.Var):
+        var_factors[k] = []
+    assert len(var_factors) <= 1, "currently only support at most one symbolic var"
+    if var_factors:
+        args = []
+        for t in inputs:
+            args.append(tvm.te.placeholder(t.shape, dtype=t.dtype))
+        task = autotvm.task.create("batch_matmul.x86", args, target)
+        cfg = autotvm.DispatchContext.current.query(target, task.workload)
+        if not cfg.is_fallback:
+            if m in var_factors:
+                var_factors[m].append(cfg["tile_y"].size[-1])
+            if n in var_factors:
+                var_factors[n].append(cfg["tile_x"].size[-1])
+            if k in var_factors:
+                var_factors[k].append(cfg["tile_k"].size[-1])
+            cond = []
+            for v in var_factors:
+                factor = int(np.lcm.reduce(var_factors[v]))
+                generate_modular_strategies(
+                    strategy,
+                    wrap_compute_batch_matmul(topi.x86.batch_matmul),
+                    wrap_topi_schedule(topi.x86.schedule_batch_matmul),
+                    v,
+                    factor,
+                    "batch_matmul.x86",
+                    11)
+                break
     return strategy
 
 @schedule_sparse_dense.register("cpu")

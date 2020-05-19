@@ -91,6 +91,13 @@ struct SymbolicBoundAnalyzer::Entry {
     return false;
   }
 
+  bool is_const_expr() const {
+    if (StructuralEqual()(lower_bound, upper_bound)) {
+      return true;
+    }
+    return false;
+  }
+
   bool operator==(const Entry& other) const {
     return (StructuralEqual()(lower_bound, other.lower_bound) &&
             StructuralEqual()(upper_bound, other.upper_bound));
@@ -323,6 +330,15 @@ class SymbolicBoundAnalyzer::Impl :
       return ret;
     }
     return MakeUnknownBound();
+  }
+
+  Entry VisitExpr_(const FloorModNode* op) final {
+    Entry ret = MakeUnknownBound();
+    if (analyzer_->CanProveGreaterEqual(op->b, 0)) {
+      ret.lower_bound = 0;
+      ret.upper_bound = analyzer_->Simplify(op->b - 1);
+    }
+    return ret;
   }
 
   Entry VisitExpr_(const VarNode* op) final {

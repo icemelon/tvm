@@ -92,6 +92,10 @@ bool Analyzer::CanProveGreaterEqual(const PrimExpr& expr, int64_t lower_bound) {
   }
   auto bd = this->const_int_bound(this->rewrite_simplify(expr));
   if (bd->min_value >= lower_bound) return true;
+
+  auto sym_bound = this->symbolic_bound(expr);
+  int64_t sym_lb = this->const_int_bound(sym_bound->lower_bound)->min_value;
+  if (sym_lb >= lower_bound) return true;
   return false;
 }
 
