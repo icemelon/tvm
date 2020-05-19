@@ -550,8 +550,7 @@ void InstructionPrint(std::ostream& os, const Instruction& instr) {
     }
     case Opcode::AllocTensorReg: {
       os << "alloc_tensor_reg $" << instr.dst << " $" << instr.alloc_tensor_reg.storage << " $"
-         << instr.alloc_tensor_reg.storage << " $" << instr.alloc_tensor_reg.offset << " $"
-         << instr.alloc_tensor_reg.shape_register << " ";
+         << instr.alloc_tensor_reg.offset << " $" << instr.alloc_tensor_reg.shape_register << " ";
       DLDatatypePrint(os, instr.alloc_tensor_reg.dtype);
       break;
     }
@@ -668,10 +667,11 @@ std::vector<int64_t> ToShape(NDArray shape_tensor) {
   shape.resize(ndim);
 
   const DLTensor* dl_tensor = shape_tensor.operator->();
-  if (dtype.is_int() && dtype.bits() == 32 && dtype.lanes() == 1) {
+  CHECK(dtype.is_int() && dtype.lanes() == 1);
+  if (dtype.bits() == 32) {
     int32_t* dims = reinterpret_cast<int32_t*>(dl_tensor->data);
     shape.assign(dims, dims + ndim);
-  } else if (dtype.is_int() && dtype.bits() == 64 && dtype.lanes() == 1) {
+  } else if (dtype.bits() == 64) {
     int64_t* dims = reinterpret_cast<int64_t*>(dl_tensor->data);
     shape.assign(dims, dims + ndim);
   } else {
@@ -884,12 +884,11 @@ inline ObjectRef VirtualMachine::ReadRegister(Index r) const {
 inline int32_t VirtualMachine::LoadScalarInt(Index r) const {
   int32_t result;
   const auto& obj = ReadRegister(r);
-  auto nd_array = Downcast<NDArray>(obj);
-  NDArray array = nd_array.CopyTo({kDLCPU, 0});
+  NDArray array = Downcast<NDArray>(CopyTo(obj, {kDLCPU, 0}));
 
-  if (array->dtype.bits <= 8) {
+  if (array->dtype.bits == 8) {
     result = reinterpret_cast<int8_t*>(array->data)[0];
-  } else if (array->dtype.bits <= 16) {
+  } else if (array->dtype.bits == 16) {
     result = reinterpret_cast<int16_t*>(array->data)[0];
   } else {
     result = reinterpret_cast<int32_t*>(array->data)[0];
@@ -928,8 +927,7 @@ inline void VirtualMachine::AllocTensorReg(const Instruction& instr) {
   cpu_ctx.device_type = kDLCPU;
   cpu_ctx.device_id = 0;
   auto shape_tensor_obj = ReadRegister(instr.alloc_tensor_reg.shape_register);
-  const auto shape_arr = Downcast<NDArray>(shape_tensor_obj);
-  NDArray shape_tensor = shape_arr.CopyTo(cpu_ctx);
+  const auto shape_tensor = Downcast<NDArray>(CopyTo(shape_tensor_obj, cpu_ctx));
   auto shape = ToShape(shape_tensor);
   auto storage_obj = ReadRegister(instr.alloc_tensor_reg.storage);
   auto storage = Downcast<Storage>(storage_obj);
@@ -1124,7 +1122,7 @@ void VirtualMachine::RunLoop() {
         NDArray tensor_arr = Downcast<NDArray>(tensor_obj);
 
         auto shape_obj = ReadRegister(instr.new_shape);
-        NDArray shape_tensor = Downcast<NDArray>(shape_obj).CopyTo(cpu_ctx);
+        NDArray shape_tensor = Downcast<NDArray>(CopyTo(shape_obj, cpu_ctx));
         const DLTensor* dl_tensor = shape_tensor.operator->();
         CHECK_EQ(dl_tensor->dtype.code, 0u);
         CHECK_EQ(dl_tensor->dtype.bits, 64);
