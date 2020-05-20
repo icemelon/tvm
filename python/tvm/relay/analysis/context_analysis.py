@@ -384,9 +384,12 @@ class ContextAnalysis(ExprVisitor):
             super().visit_call(call)
 
     def visit_let(self, let):
-        self.unify(self.device_for(let.var), self.device_for(let.value))
-        self.unify_expr(let, let.body)
-        super().visit_let(let)
+        while isinstance(let, _expr.Let):
+            self.unify(self.device_for(let.var), self.device_for(let.value))
+            self.unify_expr(let, let.body)
+            self.visit(let.var)
+            self.visit(let.value)
+            let = let.body
 
     def visit_function(self, f):
         self.unify(self.device_for(f), self.device_for(f.body))
