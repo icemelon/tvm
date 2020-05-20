@@ -391,16 +391,20 @@ class RelayTextPrinter :
 
   Doc VisitExpr_(const LetNode* op) final {
     Doc doc;
-    doc
-      << "let "
-      << AllocVar(op->var)
-      << " = "
-      << Print(op->value, false, true)
-      << ";"
-      << Doc::NewLine();
+    Expr let = GetRef<Let>(op);
+    while (auto let_node = let.as<LetNode>()) {
+      doc
+        << "let "
+        << AllocVar(let_node->var)
+        << " = "
+        << Print(let_node->value, false, true)
+        << ";"
+        << Doc::NewLine();
+        let = let_node->body;
+    }
     // we use a scope here so GNF hoisting doesn't escape too far
     // and nested, unique lets are not hoisted
-    doc << PrintScope(op->body);
+    doc << PrintScope(let);
     return doc;
   }
 
