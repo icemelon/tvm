@@ -373,7 +373,7 @@ class ContextAnalysis(ExprVisitor):
                 self.visit(param)
                 device = self.unify(device, self.device_for(param))
 
-            # self.unify(device, self.device_for(call.op))
+            self.unify(device, self.device_for(call.op))
 
             out_device = self.device_for(call.op)
             self.unify(self.device_for(call), out_device)

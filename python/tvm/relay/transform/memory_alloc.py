@@ -87,19 +87,13 @@ class ManifestAllocPass(ExprMutator):
         super().__init__()
 
     def get_context(self, expr):
-        # TODO(@zhiics) Need to add all newly created epxressions to the map.
         assert expr in self.context_analysis, expr.astext(False)
-        if expr in self.context_analysis:
-            return self.context_analysis[expr]
-        else:
-            return self.default_context
+        return self.context_analysis[expr]
 
     def device_copy(self, scope, inp, src_ctx, dst_ctx, idx):
         # TODO(@zhiics) move divice_copy to memory namespace
         copy = self.visit(op.tensor.device_copy(inp, src_ctx, dst_ctx))
         copy_out = scope.let("copy_out_{0}".format(idx), copy)
-        self.context_analysis[copy] = dst_ctx
-        self.context_analysis[copy_out] = dst_ctx
         return copy_out
 
     def current_scope(self):
@@ -194,9 +188,8 @@ class ManifestAllocPass(ExprMutator):
                     ctx = self.get_context(subexp)
                     if ctx.device_type != cpu_ctx.device_type:
                         subexp = self.device_copy(scope, subexp, ctx, cpu_ctx, j)
-                        self.context_analysis[subexp] = cpu_ctx
-                    let_in_arg = scope.let("in_arg_{0}".format(input_pos + j), subexp)
-                    sh_of = self.visit(self.shape_of(let_in_arg))
+                    # let_in_arg = scope.let("in_arg_{0}".format(input_pos + j), subexp)
+                    sh_of = self.visit(self.shape_of(subexp))
                     shape_func_ins.append(
                         scope.let("in_shape_{0}".format(input_pos + j), sh_of))
                     input_pos += 1
@@ -219,9 +212,7 @@ class ManifestAllocPass(ExprMutator):
         for i, out in enumerate(cfunc.outputs):
             tt = ty.TensorType(out.shape, out.dtype)
             alloc = self.make_static_allocation(scope, tt, cpu_ctx, i)
-            self.context_analysis[alloc] = cpu_ctx
             alloc = scope.let("shape_func_out_{0}".format(i), alloc)
-            self.context_analysis[alloc] = cpu_ctx
             out_shapes.append(alloc)
 
         shape_call = self.shape_func(
@@ -229,7 +220,6 @@ class ManifestAllocPass(ExprMutator):
             expr.Tuple(shape_func_ins),
             expr.Tuple(out_shapes), is_inputs)
 
-        self.context_analysis[shape_call] = cpu_ctx
         scope.let("shape_func", shape_call)
 
         return out_shapes
@@ -278,7 +268,6 @@ class ManifestAllocPass(ExprMutator):
                 shape_expr = self.device_copy(scope, shape_expr, cpu_ctx,
                                               inp_ctx, 0)
             ret = self.reshape_tensor(inp, shape_expr, ret_type.shape)
-            self.context_analysis[ret] = cpu_ctx
             return ret
         else:
             # constant output shape
