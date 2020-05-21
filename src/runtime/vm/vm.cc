@@ -606,7 +606,7 @@ void InstructionPrint(std::ostream& os, const Instruction& instr) {
     case Opcode::AllocStorage: {
       os << "alloc_storage $" <<
         instr.dst << " $" <<
-        instr.alloc_storage.allocation_size << " $" <<
+        instr.alloc_storage.allocation_size << " " <<
         instr.alloc_storage.alignment << " " <<
         DLDataType2String(instr.alloc_storage.dtype_hint);
       break;
@@ -740,20 +740,20 @@ Index VirtualMachine::PopFrame() {
 }
 
 void VirtualMachine::InvokeGlobal(const VMFunction& func, const std::vector<ObjectRef>& args) {
-  DLOG(INFO) << "Invoking global " << func.name << " " << args.size();
+  // DLOG(INFO) << "Invoking global " << func.name << " " << args.size();
 
   PushFrame(func.params.size(), this->pc_ + 1, func);
   for (size_t i = 0; i < args.size(); ++i) {
     WriteRegister(i, args[i]);
   }
-  DLOG(INFO) << "func.params= " << func.params.size();
+  // DLOG(INFO) << "func.params= " << func.params.size();
 
   code_ = func.instructions.data();
   pc_ = 0;
 }
 
 ObjectRef VirtualMachine::Invoke(const VMFunction& func, const std::vector<ObjectRef>& args) {
-  DLOG(INFO) << "Executing Function: " << std::endl << func;
+  // DLOG(INFO) << "Executing Function: " << std::endl << func;
 
   InvokeGlobal(func, args);
   RunLoop();
@@ -769,7 +769,7 @@ ObjectRef VirtualMachine::Invoke(const std::string& name, const std::vector<Obje
   CHECK(it != exec_->global_map.end())
     << "Cannot find function " << name << " in the executable";
   auto func_index_ = it->second;
-  DLOG(INFO) << "Invoke Global " << name << " at index " << func_index_;
+  // DLOG(INFO) << "Invoke Global " << name << " at index " << func_index_;
   return Invoke(exec_->functions[func_index_], args);
 }
 
@@ -842,23 +842,14 @@ void VirtualMachine::Init(const std::vector<TVMContext>& ctxs) {
   }
 }
 
-inline void VirtualMachine::WriteRegister(Index r, const ObjectRef& val) {
-  frames_.back().register_file[r] = val;
-}
-
-inline ObjectRef VirtualMachine::ReadRegister(Index r) const {
-  return frames_.back().register_file[r];
-}
-
 inline int32_t VirtualMachine::LoadScalarInt(Index r) const {
   int32_t result;
   const auto& obj = ReadRegister(r);
-  auto nd_array = Downcast<NDArray>(obj);
-  NDArray array = nd_array.CopyTo({kDLCPU, 0});
+  NDArray array = Downcast<NDArray>(CopyTo(obj, {kDLCPU, 0}));
 
-  if (array->dtype.bits <= 8) {
+  if (array->dtype.bits == 8) {
     result = reinterpret_cast<int8_t*>(array->data)[0];
-  } else if (array->dtype.bits <= 16) {
+  } else if (array->dtype.bits == 16) {
     result = reinterpret_cast<int16_t*>(array->data)[0];
   } else {
     result = reinterpret_cast<int32_t*>(array->data)[0];
@@ -868,12 +859,14 @@ inline int32_t VirtualMachine::LoadScalarInt(Index r) const {
 
 inline void VirtualMachine::AllocateStorage(const Instruction& instr) {
   auto size = LoadScalarInt(instr.alloc_storage.allocation_size);
-  auto alignment = LoadScalarInt(instr.alloc_storage.alignment);
-  DLOG(INFO) <<
-      "AllocStorage: allocation_size=" << size <<
-      "alignment=" << alignment <<
-      "dtype_hint=" << DLDataType2String(instr.alloc_storage.dtype_hint);
-  auto storage = make_storage(size, alignment, instr.alloc_storage.dtype_hint, allocators_[0]);
+  auto alignment = instr.alloc_storage.alignment;
+  // DLOG(INFO) <<
+  //     "AllocStorage: allocation_size=" << size <<
+  //     "alignment=" << alignment <<
+  //     "dtype_hint=" << DLDataType2String(instr.alloc_storage.dtype_hint);
+  auto storage_obj = SimpleObjAllocator().make_object<StorageObj>();
+  storage_obj->buffer = allocators_[0]->Alloc(size, alignment, instr.alloc_storage.dtype_hint);
+  Storage storage(storage_obj);
   WriteRegister(instr.dst, storage);
 }
 
@@ -895,9 +888,8 @@ inline void VirtualMachine::AllocTensorReg(const Instruction& instr) {
   DLContext cpu_ctx;
   cpu_ctx.device_type = kDLCPU;
   cpu_ctx.device_id = 0;
-  auto shape_tensor_obj = ReadRegister(instr.alloc_tensor_reg.shape_register);
-  const auto shape_arr = Downcast<NDArray>(shape_tensor_obj);
-  NDArray shape_tensor = shape_arr.CopyTo(cpu_ctx);
+  auto shape_obj = ReadRegister(instr.alloc_tensor_reg.shape_register);
+  NDArray shape_tensor = Downcast<NDArray>(CopyTo(shape_obj, cpu_ctx));
   const DLTensor* dl_tensor = shape_tensor.operator->();
   CHECK_EQ(dl_tensor->dtype.code, 0u);
   CHECK_EQ(dl_tensor->dtype.bits, 64);
@@ -921,7 +913,7 @@ void VirtualMachine::RunLoop() {
   while (true) {
   main_loop:
     auto const& instr = code_[this->pc_];
-    DLOG(INFO) << "Executing(" << pc_ << "): " << instr;
+    // DLOG(INFO) << "Executing(" << pc_ << "): " << instr;
 #if USE_RELAY_DEBUG
     InstructionPrint(std::cout, instr);
 #endif  // USE_RELAY_DEBUG
@@ -971,14 +963,14 @@ void VirtualMachine::RunLoop() {
         goto main_loop;
       }
       case Opcode::InvokePacked: {
-        DLOG(INFO) << "InvokedPacked " << "arity=" << instr.arity;
+        // DLOG(INFO) << "InvokedPacked " << "arity=" << instr.arity;
         CHECK_LE(instr.packed_index, packed_funcs_.size());
         const auto& func = packed_funcs_[instr.packed_index];
         const auto& arity = instr.arity;
         std::vector<ObjectRef> args;
         for (Index i = 0; i < arity; ++i) {
-          DLOG(INFO) <<
-            "arg" << i << " $" << instr.packed_args[i];
+          // DLOG(INFO) <<
+          //   "arg" << i << " $" << instr.packed_args[i];
           auto arg = ReadRegister(instr.packed_args[i]);
           args.push_back(arg);
         }
@@ -1098,7 +1090,7 @@ void VirtualMachine::RunLoop() {
         NDArray tensor_arr = Downcast<NDArray>(tensor_obj);
 
         auto shape_obj = ReadRegister(instr.new_shape);
-        NDArray shape_tensor = Downcast<NDArray>(shape_obj).CopyTo(cpu_ctx);
+        NDArray shape_tensor = Downcast<NDArray>(CopyTo(shape_obj, cpu_ctx));
         const DLTensor* dl_tensor = shape_tensor.operator->();
         CHECK_EQ(dl_tensor->dtype.code, 0u);
         CHECK_EQ(dl_tensor->dtype.bits, 64);

@@ -563,8 +563,15 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
           this->VisitExpr(args[0]);
           auto size_register = last_register_;
 
-          this->VisitExpr(args[1]);
-          auto alignment_register = last_register_;
+          //this->VisitExpr(args[1]);
+          //auto alignment_register = last_register_;
+          CHECK(args[1].as<ConstantNode>());
+          NDArray alignment_arr = args[1].as<ConstantNode>()->data;
+          CHECK_EQ(alignment_arr->dtype.code, 0U)
+              << "The dtype of constant shape must be int32 or int64, but got "
+              << DLDataType2String(alignment_arr->dtype);
+          CHECK_EQ(alignment_arr->dtype.bits, 64U);
+          int64_t alignment = reinterpret_cast<int64_t*>(alignment_arr->data)[0];
 
           // Get the dtype hint from the attributes.
           auto alloc_attrs = attrs.as<AllocStorageAttrs>();
@@ -572,7 +579,7 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
               << "must be the alloc tensor attrs";
           auto dtype = alloc_attrs->dtype;
 
-          Emit(Instruction::AllocStorage(size_register, alignment_register, dtype, NewRegister()));
+          Emit(Instruction::AllocStorage(size_register, alignment, dtype, NewRegister()));
       }).Match("memory.shape_func",
         [this](const Array<Expr>& args, const Attrs& attrs, const Array<Type>& type_arg) {
           CHECK_EQ(args.size(), 3);

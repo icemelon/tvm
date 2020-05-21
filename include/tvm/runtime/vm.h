@@ -238,7 +238,7 @@ struct Instruction {
       /*! \brief The size of the allocation. */
       RegName allocation_size;
       /*! \brief The alignment of the allocation. */
-      RegName alignment;
+      Index alignment;
       /*! \brief The hint of the dtype. */
       DLDataType dtype_hint;
     } alloc_storage;
@@ -385,7 +385,7 @@ struct Instruction {
    * \param dst The destination to place the storage.
    * \return The alloc storage instruction.
    */
-  static Instruction AllocStorage(RegName size, RegName alignment,
+  static Instruction AllocStorage(RegName size, Index alignment,
                                   DLDataType dtype_hint, RegName dst);
 
   static Instruction ReshapeTensor(RegName tensor, RegName new_shape, RegName dst);
@@ -727,14 +727,18 @@ class VirtualMachine : public runtime::ModuleNode {
    * \param reg The register to write to.
    * \param obj The object to write to.
    */
-  inline void WriteRegister(RegName reg, const ObjectRef& obj);
+  inline void WriteRegister(RegName reg, const ObjectRef& obj) {
+    frames_.back().register_file[reg] = obj;
+  }
 
   /*!
    * \brief Read a VM register.
    * \param reg The register to read from.
    * \return The read object.
    */
-  inline ObjectRef ReadRegister(RegName reg) const;
+  inline ObjectRef ReadRegister(RegName reg) const {
+    return frames_.back().register_file[reg];
+  }
 
   /*!
    * \brief Read a VM register and cast it to int32_t
