@@ -450,5 +450,30 @@ TVM_REGISTER_GLOBAL("relay.op.memory._make.reshape_tensor")
   return Call(op, {data, shape}, Attrs(attrs), {});
 });
 
+extern bool ShapeOfRel(const Array<Type>& types,
+                       int num_inputs,
+                       const Attrs& attrs,
+                       const TypeReporter& reporter);
+
+RELAY_REGISTER_OP("memory.shape_of")
+.describe(R"code(Use VM shape_of instruction to get the shape of the tensor.
+)code" TVM_ADD_FILELINE)
+.set_num_inputs(1)
+.add_argument("data", "Tensor", "The input tensor")
+.add_type_rel("ShapeOf", ShapeOfRel)
+.set_support_level(10)
+.set_attr<TOpPattern>("TOpPattern", kOpaque)
+.set_attr<TOpIsStateful>("TOpIsStateful", false)
+.set_attr<TNonComputational>("TNonComputational", true)
+.set_attr<FInferCorrectLayout>("FInferCorrectLayout", ElemwiseArbitraryLayout);
+
+TVM_REGISTER_GLOBAL("relay.op.memory._make.shape_of")
+.set_body_typed([](Expr data) {
+  auto attrs = make_object<ShapeOfAttrs>();
+  attrs->dtype = DataType::Int(64);
+  static const Op& op = Op::Get("memory.shape_of");
+  return Call(op, {data}, Attrs(attrs), {});
+});
+
 }  // namespace relay
 }  // namespace tvm

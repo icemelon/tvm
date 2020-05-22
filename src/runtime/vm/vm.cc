@@ -150,6 +150,9 @@ Instruction::Instruction(const Instruction& instr) {
       this->src_device_type = instr.src_device_type;
       this->dst_device_type = instr.dst_device_type;
       return;
+    case Opcode::ShapeOf:
+      this->shape_of.src = instr.shape_of.src;
+      return;
     default:
       std::ostringstream out;
       out << "Invalid instruction " << static_cast<int>(instr.op);
@@ -251,6 +254,9 @@ Instruction& Instruction::operator=(const Instruction& instr) {
       this->src_device_type = instr.src_device_type;
       this->dst_device_type = instr.dst_device_type;
       return *this;
+    case Opcode::ShapeOf:
+      this->shape_of.src = instr.shape_of.src;
+      return *this;
     default:
       std::ostringstream out;
       out << "Invalid instruction " << static_cast<int>(instr.op);
@@ -273,6 +279,7 @@ Instruction::~Instruction() {
     case Opcode::Fatal:
     case Opcode::ReshapeTensor:
     case Opcode::DeviceCopy:
+    case Opcode::ShapeOf:
       return;
     case Opcode::AllocTensor:
       delete this->alloc_tensor.shape;
@@ -507,6 +514,14 @@ Instruction Instruction::DeviceCopy(RegName src, Index src_device_type, Index ds
   return instr;
 }
 
+Instruction Instruction::ShapeOf(RegName src, RegName dst) {
+  Instruction instr;
+  instr.op = Opcode::ShapeOf;
+  instr.dst = dst;
+  instr.shape_of.src = src;
+  return instr;
+}
+
 void DLDatatypePrint(std::ostream& os, const DLDataType& dtype) {
   switch (dtype.code) {
     case kDLInt:
@@ -648,6 +663,10 @@ void InstructionPrint(std::ostream& os, const Instruction& instr) {
          << " $" << instr.src
          << " " << instr.src_device_type
          << " " << instr.dst_device_type;
+      break;
+    }
+    case Opcode::ShapeOf: {
+      os << "shape_of $" << instr.dst << " $" << instr.shape_of.src;
       break;
     }
     default:
@@ -1170,6 +1189,19 @@ void VirtualMachine::RunLoop() {
 
         NDArray dst_data = src_data.CopyTo(dst_ctx);
         WriteRegister(instr.dst, dst_data);
+        pc_++;
+        goto main_loop;
+      }
+      case Opcode::ShapeOf: {
+        auto src = ReadRegister(instr.shape_of.src);
+        NDArray src_data = Downcast<NDArray>(src);
+        int ndim = src_data->ndim;
+        auto out = NDArray::Empty({ndim}, {kDLInt, 64, 1}, {kDLCPU, 0});
+        auto ptr = reinterpret_cast<int64_t*>(out->data);
+        for (int i = 0; i < ndim; ++i) {
+          ptr[i] = src_data->shape[i];
+        }
+        WriteRegister(instr.dst, out);
         pc_++;
         goto main_loop;
       }

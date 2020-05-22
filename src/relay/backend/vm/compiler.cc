@@ -338,6 +338,7 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
       case Opcode::InvokeClosure:
       case Opcode::ReshapeTensor:
       case Opcode::DeviceCopy:
+      case Opcode::ShapeOf:
         last_register_ = instr.dst;
         break;
       case Opcode::InvokePacked:
@@ -700,7 +701,13 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
           Index dst_device_type = device_copy_attrs->dst_dev_type;
           Emit(Instruction::DeviceCopy(src_reg, src_device_type, dst_device_type, NewRegister()));
 
-        });
+       }).Match("memory.shape_of",
+         [this](const Array<Expr>& args, const Attrs& attrs, const Array<Type>& type_arg) {
+           CHECK_EQ(args.size(), 1U);
+           this->VisitExpr(args[0]);
+           auto src_reg = last_register_;
+           Emit(Instruction::ShapeOf(src_reg, NewRegister()));
+       });
       matcher(GetRef<Call>(call_node));
       return;
     }

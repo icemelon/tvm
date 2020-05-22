@@ -117,6 +117,7 @@ enum class Opcode {
   AllocStorage = 16U,
   ReshapeTensor = 17U,
   DeviceCopy = 18U,
+  ShapeOf = 19U,
 };
 
 /*! \brief A single virtual machine instruction.
@@ -257,6 +258,9 @@ struct Instruction {
       /*! \brief The destination device type. */
       Index dst_device_type;
     };
+    struct /* ShapeOf Operands */ {
+      RegName src;
+    } shape_of;
   };
 
   /*!
@@ -404,6 +408,8 @@ struct Instruction {
 
   static Instruction DeviceCopy(RegName src, Index src_device_type, Index dst_device_type,
                                 RegName dst);
+
+  static Instruction ShapeOf(RegName src, RegName dst);
 
   Instruction();
   Instruction(const Instruction& instr);

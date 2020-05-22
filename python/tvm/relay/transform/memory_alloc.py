@@ -78,6 +78,7 @@ class ManifestAllocPass(ExprMutator):
         self.alloc_storage = op.memory.alloc_storage
         self.alloc_tensor = op.memory.alloc_tensor
         self.shape_func = op.memory.shape_func
+        self.shape_of = op.memory.shape_of
         self.reshape_tensor = op.memory.reshape_tensor
         self.scopes = [ScopeBuilder()]
         self.target_host = target_host
@@ -98,9 +99,6 @@ class ManifestAllocPass(ExprMutator):
 
     def current_scope(self):
         return self.scopes[-1]
-
-    def shape_of(self, e):
-        return op.shape_of(e, self.compute_dtype)
 
     def visit_tuple(self, tup):
         scope = self.current_scope()
@@ -185,10 +183,6 @@ class ManifestAllocPass(ExprMutator):
             # Pass Shapes
             if state == 2:
                 for j, subexp in enumerate(from_tuple_type(arg.type_annotation, arg)):
-                    ctx = self.get_context(subexp)
-                    if ctx.device_type != cpu_ctx.device_type:
-                        subexp = self.device_copy(scope, subexp, ctx, cpu_ctx, j)
-                    let_in_arg = scope.let("in_arg_{0}".format(input_pos + j), subexp)
                     sh_of = self.visit(self.shape_of(subexp))
                     shape_func_ins.append(
                         scope.let("in_shape_{0}".format(input_pos + j), sh_of))
@@ -234,9 +228,6 @@ class ManifestAllocPass(ExprMutator):
         for i, (out_shape, out_type) in enumerate(zip(out_shapes, out_types)):
             size = self.compute_storage_in_relay(out_shape, out_type.dtype)
             alignment = self.compute_alignment(out_type.dtype)
-            if func_ctx.device_type != cpu_ctx.device_type:
-                size = self.device_copy(scope, size, cpu_ctx, func_ctx, i)
-                out_shape = self.device_copy(scope, out_shape, cpu_ctx, func_ctx, i)
             copy_out_shapes.append(out_shape)
             sto = scope.let("storage_{i}".format(i=i), self.alloc_storage(
                 size, alignment, func_ctx, out_type.dtype))
@@ -265,9 +256,6 @@ class ManifestAllocPass(ExprMutator):
             inp = new_args[0]
             inp_ctx = self.get_context(func)
             cpu_ctx = nd.cpu(0)
-            if inp_ctx.device_type != cpu_ctx.device_type:
-                shape_expr = self.device_copy(scope, shape_expr, cpu_ctx,
-                                              inp_ctx, 0)
             ret = self.reshape_tensor(inp, shape_expr, ret_type.shape)
             return ret
         else:

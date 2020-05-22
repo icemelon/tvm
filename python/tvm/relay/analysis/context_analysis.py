@@ -325,22 +325,17 @@ class ContextAnalysis(ExprVisitor):
             self.device_copy(inps, outs, src_dev_type, dst_dev_type)
             super().visit_call(call)
         elif call.op == op.op.get("memory.alloc_storage"):
+            for arg in call.args:
+                self.unify(self.device_for(arg), device_type(cpu(0)))
+                self.visit(arg)
             call_dev = device_type(TVMContext(call.attrs.device_type,
                                               call.attrs.device_id))
             self.unify(self.device_for(call), call_dev)
-            # The arguments should be one the same device as the call.
-            self.visit(call.args[0])
-            size = call.args[0]
-            self.visit(call.args[1])
-            alignment = call.args[1]
-            self.unify(self.device_for(size), call_dev)
-            self.unify(self.device_for(alignment), call_dev)
         elif call.op == op.op.get("memory.alloc_tensor"):
-            storage = call.args[0]
-            shape = call.args[1]
-            self.visit(call.args[1])
+            storage, shape = call.args
             self.unify(self.device_for(storage), self.device_for(call))
-            self.unify(self.device_for(shape), self.device_for(call))
+            self.unify(self.device_for(shape), device_type(cpu(0)))
+            self.visit(shape)
         elif call.op == op.op.get("memory.shape_func"):
             shape_func_domain = device_type(cpu(0))
             # No need to union the op of a shape_func as shape_func doesn't
@@ -364,6 +359,15 @@ class ContextAnalysis(ExprVisitor):
                                          call.args[2].fields)
                 self.unify(self.device_for(call), device)
                 super().visit_call(call)
+        elif call.op == op.op.get("memory.shape_of"):
+            self.visit(call.args[0])
+            self.unify(self.device_for(call), device_type(cpu(0)))
+        elif call.op == op.op.get("memory.reshape_tensor"):
+            data, shape = call.args
+            self.unify(self.device_for(call), self.device_for(data))
+            self.unify(self.device_for(shape), device_type(cpu(0)))
+            self.visit(data)
+            self.visit(shape)
         elif isinstance(call.op, Function):
             device = self.device_for(call)
             for arg in call.args:

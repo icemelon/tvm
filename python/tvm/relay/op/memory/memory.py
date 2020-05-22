@@ -108,6 +108,9 @@ def shape_func(func, inputs, outputs, dependent=False):
     """
     return _make.shape_func(func, inputs, outputs, dependent)
 
+def shape_of(tensor):
+    return _make.shape_of(tensor)
+
 def reshape_tensor(data_tensor, shape_tensor, new_shape):
     return _make.reshape_tensor(data_tensor, shape_tensor, new_shape)
 
