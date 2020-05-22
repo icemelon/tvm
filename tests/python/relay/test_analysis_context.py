@@ -23,7 +23,6 @@ from tvm import relay
 
 data0 = relay.var("data0", shape=(1, relay.Any()))
 data1 = relay.var("data1", shape=(1, relay.Any()))
-data2 = relay.var("data2", shape=(1,))
 
 r0 = relay.cast(data0, dtype="int32")
 w0 = relay.const(np.ndarray(shape=(30522, 768), dtype="float32"))
@@ -83,10 +82,19 @@ r42 = relay.reverse_reshape(r41, newshape=[-1, 0, 0])
 r43 = relay.nn.batch_matmul(r39, r42)
 # r44 = relay.nn.softmax(r43)
 
-func = relay.Function([data0, data1, data2], r43)
+func = relay.Function([data0, data1], r43)
 mod = tvm.ir.IRModule.from_expr(func)
 
 params = {}
 exe = relay.vm.compile(mod, target="cuda", params=params)
 rt = tvm.runtime.vm.VirtualMachine(exe)
 rt.init(tvm.gpu(0))
+
+seq_length = 128
+d0 = np.random.randint(0, 1000, size=(1, seq_length)).astype('float32')
+d1 = np.ones((1, seq_length)).astype('float32')
+d2 = np.asarray([seq_length]).astype('float32')
+
+rt.set_input("main", data0=d0, data1=d1)
+
+rt.run()

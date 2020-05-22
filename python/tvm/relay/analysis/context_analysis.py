@@ -323,6 +323,7 @@ class ContextAnalysis(ExprVisitor):
            # same device to the source device type of the device copy op.
            # The call itself has the same device type to the destination.
             self.device_copy(inps, outs, src_dev_type, dst_dev_type)
+            super().visit_call(call)
         elif call.op == op.op.get("memory.alloc_storage"):
             call_dev = device_type(TVMContext(call.attrs.device_type,
                                               call.attrs.device_id))
@@ -364,21 +365,18 @@ class ContextAnalysis(ExprVisitor):
                 self.unify(self.device_for(call), device)
                 super().visit_call(call)
         elif isinstance(call.op, Function):
-            device = bottom()
+            device = self.device_for(call)
             for arg in call.args:
-                self.visit(arg)
                 device = self.unify(device, self.device_for(arg))
+                self.visit(arg)
 
             for param in call.op.params:
                 self.visit(param)
                 device = self.unify(device, self.device_for(param))
 
             self.unify(device, self.device_for(call.op))
-
-            out_device = self.device_for(call.op)
-            self.unify(self.device_for(call), out_device)
-            self.unify(self.device_for(call.op.body), out_device)
-            super().visit_call(call)
+            self.unify(device, self.device_for(call.op.body))
+            self.visit(call.op)
         else:
             self.unify_call(call, call.args, [call])
             super().visit_call(call)
@@ -398,7 +396,10 @@ class ContextAnalysis(ExprVisitor):
     def visit_tuple(self, tup):
         # TODO(@zhiics) How to handle tuple with different device context for
         # different fields.
-        # self.unify(self.device_for(tup), self.device_for(tup[0]))
+        device = self.device_for(tup[0])
+        for i in range(1, len(tup)):
+            device = self.unify(device, self.device_for(tup[i]))
+        self.unify(device, self.device_for(tup))
         super().visit_tuple(tup)
 
     def visit_tuple_getitem(self, t):

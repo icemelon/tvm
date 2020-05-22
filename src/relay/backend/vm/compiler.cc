@@ -551,9 +551,9 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
             targets_.count(expr_device_map_[func].device_type) == 0) {
           transform::PassContext pass_ctx = PassContext::Current();
           auto dev_name = runtime::DeviceName(pass_ctx->fallback_device);
-          LOG(WARNING)
-              << "The function is not annotated or no target is provided. Fallback to "
-              << dev_name;
+          if (expr_device_map_.count(func) == 0) {
+            LOG(WARNING) << "The function is not annotated. Fallback to " << dev_name;
+          }
           target = CreateDefaultTarget(pass_ctx->fallback_device);
         } else {
           target = targets_[expr_device_map_[func].device_type];

@@ -188,7 +188,7 @@ class ManifestAllocPass(ExprMutator):
                     ctx = self.get_context(subexp)
                     if ctx.device_type != cpu_ctx.device_type:
                         subexp = self.device_copy(scope, subexp, ctx, cpu_ctx, j)
-                    # let_in_arg = scope.let("in_arg_{0}".format(input_pos + j), subexp)
+                    let_in_arg = scope.let("in_arg_{0}".format(input_pos + j), subexp)
                     sh_of = self.visit(self.shape_of(subexp))
                     shape_func_ins.append(
                         scope.let("in_shape_{0}".format(input_pos + j), sh_of))
@@ -232,11 +232,12 @@ class ManifestAllocPass(ExprMutator):
         func_ctx = self.get_context(func)
         copy_out_shapes = []
         for i, (out_shape, out_type) in enumerate(zip(out_shapes, out_types)):
-            if func_ctx.device_type != cpu_ctx.device_type:
-                out_shape = self.device_copy(scope, out_shape, cpu_ctx, func_ctx, i)
-            copy_out_shapes.append(out_shape)
             size = self.compute_storage_in_relay(out_shape, out_type.dtype)
             alignment = self.compute_alignment(out_type.dtype)
+            if func_ctx.device_type != cpu_ctx.device_type:
+                size = self.device_copy(scope, size, cpu_ctx, func_ctx, i)
+                out_shape = self.device_copy(scope, out_shape, cpu_ctx, func_ctx, i)
+            copy_out_shapes.append(out_shape)
             sto = scope.let("storage_{i}".format(i=i), self.alloc_storage(
                 size, alignment, func_ctx, out_type.dtype))
             storages.append(sto)
