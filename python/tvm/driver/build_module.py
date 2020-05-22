@@ -183,7 +183,8 @@ def lower(sch,
         tvm.tir.transform.InjectPrefetch(),
         tvm.tir.transform.StorageFlatten(64, cfg.instrument_bound_checkers),
         tvm.tir.transform.NarrowDataType(32),
-        tvm.tir.transform.Simplify(),
+        tvm.tir.transform.BindSpecializedCondition(),
+        tvm.tir.transform.Simplify(False),
     ]
     pass_list += lower_phase1
 

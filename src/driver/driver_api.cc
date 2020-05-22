@@ -163,7 +163,8 @@ IRModule lower(te::Schedule sch,
       tir::transform::StorageFlatten(64, config->instrument_bound_checkers));
   // Phase 1
   pass_list.push_back(tir::transform::NarrowDataType(32));
-  pass_list.push_back(tir::transform::Simplify());
+  pass_list.push_back(tir::transform::BindSpecializedCondition());
+  pass_list.push_back(tir::transform::Simplify(false));
   pass_list.push_back(tir::transform::LoopPartition(config->partition_const_loop));
   pass_list.push_back(tir::transform::VectorizeLoop(!config->disable_vectorize));
   pass_list.push_back(tir::transform::InjectVirtualThread());
