@@ -86,10 +86,12 @@ Stmt BindSpecializedCondition(Stmt stmt) {
         bind.origin_var = x.Eval();
         bind.divisor = IntImm(bind.origin_var->dtype, divisor);
         bind.remainder = IntImm(bind.origin_var->dtype, remainder);
+        std::ostringstream os;
+        os << bind.origin_var->name_hint << "_div_" << divisor;
         if (bind.origin_var.as<SizeVarNode>()) {
-          bind.bind_var = SizeVar("k");
+          bind.bind_var = SizeVar(os.str());
         } else {
-          bind.bind_var = Var("k");
+          bind.bind_var = Var(os.str());
         }
         bind_map.emplace(bind.origin_var.get(), bind);
         vmap.emplace(bind.origin_var.get(), bind.divisor * bind.bind_var + bind.remainder);
