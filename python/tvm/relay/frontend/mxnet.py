@@ -1248,6 +1248,76 @@ def _mx_cond(inputs, attrs, subgraphs):
     return ret
 
 
+def _mx_foreach(inputs, attrs, subgraphs, dtype_info, mod):
+    #print("Inputs is {}".format(inputs))
+    from tvm.relay.prelude import Prelude
+    p = Prelude(mod)
+    nil = p.nil
+    cons = p.cons
+    l = p.l
+
+    assert len(subgraphs) == 1
+    in_data_locs = json.loads(attrs.get_str('in_data_locs'))
+    in_state_locs = json.loads(attrs.get_str('in_state_locs'))
+    remain_locs = json.loads(attrs.get_str('remain_locs'))
+
+    num_data = len(in_data_locs)
+    num_states = len(in_state_locs)
+    num_outputs = len(subgraphs[0]["heads"]) - num_states
+
+    data = inputs[:num_data]
+    prev_states = inputs[num_data:num_data+num_states]
+    params = inputs[num_data+num_states:]
+    num_iter = _expr.var("num_iter", dtype='int32', shape=())
+    loop_iter = _expr.var("i", dtype='int32', shape=())
+    all_outs = _expr.var("all_outs")
+
+    loop = _expr.GlobalVar("foreach")
+    body_sb = _scope_builder.ScopeBuilder()
+    with body_sb.if_scope(_op.equal(loop_iter, num_iter)):
+        body_sb.ret(_expr.Tuple([all_outs] + prev_states))
+    with body_sb.else_scope():
+        loop_body_args = [None] * len(inputs)
+        for k, v in enumerate(in_data_locs):
+            assert loop_body_args[v] is None
+            loop_body_args[v] = _op.take(data[k], loop_iter, 0)
+        for k, v in enumerate(in_state_locs):
+            assert loop_body_args[v] is None
+            loop_body_args[v] = prev_states[k]
+        for k, v in enumerate(remain_locs):
+            assert loop_body_args[v] is None
+            loop_body_args[v] = params[k]
+        loop_body_arg_shapes = [_infer_type(arg).checked_type.shape
+                                for arg in loop_body_args]
+        loop_body = _from_mxnet_impl(subgraphs[0], loop_body_arg_shapes, dtype_info, mod=mod)
+        loop_body_ret = _expr.Call(loop_body, loop_body_args)
+
+        if num_outputs == 1:
+            out = _expr.TupleGetItem(loop_body_ret, 0)
+        else:
+            out = _expr.Tuple([_expr.TupleGetItem(loop_body_ret, i) for i in range(num_outputs)])
+        states = [_expr.TupleGetItem(loop_body_ret, num_outputs+i) for i in range(num_states)]
+        new_all_outs = cons(out, all_outs)
+        recur_ret = _expr.Call(loop, data + states + params + [num_iter, loop_iter + _expr.const(1), new_all_outs])
+        body_sb.ret(recur_ret)
+
+    body = body_sb.get()
+    loop_args = inputs + [num_iter, loop_iter, all_outs]
+    func = _function.Function(loop_args, body)
+    mod[loop] = func
+
+    data0_shape = _op.shape_of(inputs[0])
+    num_iter = _op.take(data0_shape, _expr.const(0))
+    loop_args = inputs + [num_iter, _expr.const(0), nil()]
+    ret = _expr.Call(loop, loop_args)
+    # Currently return the all_outs in reverse order because foldl and rev fail
+    # to compile in the vm
+    # all_outs = p.rev(_expr.TupleGetItem(ret, 0))
+    # states = _expr.TupleGetItem(ret, 1)
+    # return _expr.TupleWrapper(_expr.Tuple([all_outs, states]), 2)
+    return _expr.TupleWrapper(ret, num_states+1)
+
+
 def _qnn_contrib_concat(inputs, attrs):
     axis = attrs.get_int("dim", 1)
     num_args = attrs.get_int("num_args", -1)
@@ -2044,6 +2114,7 @@ _convert_map = {
     "_contrib_interleaved_matmul_selfatt_valatt" : _mx_contrib_interleaved_matmul_selfatt_valatt,
     # control flow
     "_cond"             : _mx_cond,
+    "_foreach"          : _mx_foreach,
     # Depricated:
     "Crop"              : _mx_crop_like,
     # List of missing operators that are present in NNVMv1
@@ -2074,13 +2145,16 @@ _subgraph_ops = _control_flow_ops + _qnn_subgraph_ops
 _params_ops = ['_contrib_quantized_ring_buffer']
 
 
-def _get_op_params(children, attrs, op_name, node, params):
+def _get_op_params(children, attrs, op_name, node, params, dtype_info, mod):
     op_params = [children, attrs]
     if op_name in _subgraph_ops:
         subgraphs = node['subgraphs']
         op_params.append(subgraphs)
         if op_name in _qnn_subgraph_ops:
             op_params.append(params)
+    if op_name == "_foreach":
+        op_params.append(dtype_info)
+        op_params.append(mod)
     if op_name in _params_ops:
         op_params.append(params)
     return op_params
@@ -2145,7 +2219,7 @@ def _from_mxnet_impl(symbol, shape_dict, dtype_info, params=None, mod=None):
             node_map[nid] = [_expr.var(node_name, shape=shape, dtype=dtype)]
         elif op_name in _convert_map:
             op_params = _get_op_params(children, attrs, op_name,
-                                       node, params)
+                                       node, params, dtype_info, mod)
             res = _convert_map[op_name](*op_params)
             if res is None:
                 # defer conversion, used in RNN state initialization
