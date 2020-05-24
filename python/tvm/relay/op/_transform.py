@@ -641,3 +641,22 @@ def split_shape_func(attrs, inputs, _):
                               convert(i),
                               convert(indices_or_sections),
                               convert(axis)) for i in range(num_out)]
+
+@script
+def _sequence_mask_shape_func(data_shape, valid_length_shape, axis):
+    out = output_tensor((len(data_shape),), "int64")
+    assert valid_length_shape[0] == data_shape[1 - axis], \
+        "valid length shape is inconsistent with daa shape"
+    for i in const_range(data_shape.shape[0]):
+        out[i] = data_shape[i]
+    return out
+
+@_reg.register_shape_func("sequence_mask", False)
+def sequence_mask_shape_func(attrs, inputs, _):
+    """
+    Shape function for sequence mask.
+    """
+    assert len(inputs) == 2
+    axis = get_const_int(attrs.axis)
+    assert axis in [0, 1]
+    return [_sequence_mask_shape_func(*inputs, convert(axis))]
