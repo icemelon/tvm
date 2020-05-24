@@ -847,13 +847,31 @@ inline int32_t VirtualMachine::LoadScalarInt(Index r) const {
   const auto& obj = ReadRegister(r);
   NDArray array = Downcast<NDArray>(CopyTo(obj, {kDLCPU, 0}));
 
-  if (array->dtype.bits == 8) {
-    result = reinterpret_cast<int8_t*>(array->data)[0];
-  } else if (array->dtype.bits == 16) {
-    result = reinterpret_cast<int16_t*>(array->data)[0];
-  } else {
-    result = reinterpret_cast<int32_t*>(array->data)[0];
-  }
+  switch (array->dtype.bits) {
+    case 1: {
+      result = reinterpret_cast<bool*>(array->data)[0];
+      break;
+    }
+    case 8: {
+      result = reinterpret_cast<int8_t*>(array->data)[0];
+      break;
+    }
+    case 16: {
+      result = reinterpret_cast<int16_t*>(array->data)[0];
+      break;
+    }
+    case 32: {
+      result = reinterpret_cast<int32_t*>(array->data)[0];
+      break;
+    }
+    case 64: {
+      result = reinterpret_cast<int64_t*>(array->data)[0];
+      break;
+    }
+    default:
+      result = 0;
+      LOG(FATAL) << "Unsupported dtype " << DLDataType2String(array->dtype);
+  };
   return result;
 }
 
