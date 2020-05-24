@@ -477,10 +477,9 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
     // Prepare input and output registers
     std::vector<Index> argument_registers;
     for (auto input : inputs) {
-      auto reg = var_register_map_.find(Downcast<Var>(input));
-      CHECK(reg != var_register_map_.end())
-        << "internal error: all variables should be in the register mapping";
-      argument_registers.push_back(reg->second);
+      VisitExpr(input);
+      auto reg = last_register_;
+      argument_registers.push_back(reg);
     }
 
     for (auto output : outputs) {
@@ -515,10 +514,9 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
       << "please file a bug in the memory manifestation pass";
 
     for (auto input : input_tuple->fields) {
-      auto reg = var_register_map_.find(Downcast<Var>(input));
-      CHECK(reg != var_register_map_.end())
-        << "internal error: all variables should be in the register mapping";
-      argument_registers.push_back(reg->second);
+      VisitExpr(input);
+      auto reg = last_register_;
+      argument_registers.push_back(reg);
     }
 
     for (auto output : output_tuple->fields) {
