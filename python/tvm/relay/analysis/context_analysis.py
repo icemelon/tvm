@@ -407,7 +407,7 @@ class ContextAnalysis(ExprVisitor):
         super().visit_tuple(tup)
 
     def visit_tuple_getitem(self, t):
-        self.unify(self.device_for(t), self.device_for(t.tuple[t.index]))
+        self.unify(self.device_for(t), self.device_for(t))
         super().visit_tuple_getitem(t)
 
     def visit_var(self, var):
