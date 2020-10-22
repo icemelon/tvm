@@ -452,7 +452,8 @@ def create(task_name, args, target, target_host=None):
             sch, _ = ret.func(*args)
             ret.config_space.code_hash = getattr(sch, "code_hash", None)
 
-    ret.flop = ret.config_space.flop or compute_flop(sch)
+    ret.flop = -1
+    # ret.flop = ret.config_space.flop or compute_flop(sch)
     ret.target = target
     ret.target_host = target_host
 

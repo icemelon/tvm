@@ -94,7 +94,7 @@ class LocalBuilder(Builder):
             else:
                 raise ValueError("Invalid build_func" + build_func)
         self.build_func = _WrappedBuildFunc(build_func)
-        self.executor = LocalExecutor(timeout=timeout)
+        self.executor = LocalExecutor(timeout=timeout, do_fork=False)
         self.tmp_dir = tempfile.mkdtemp()
 
     def build(self, measure_inputs):
@@ -453,6 +453,8 @@ def _build_func_common(measure_input, check_gpu=None, cuda_arch=None, build_opti
         else:
             with tvm.ir.transform.PassContext(config=opts):
                 func = build(s, args, target_host=task.target_host)
+    # Error here
+    return func, None
     return func, tuple((get_const_tuple(x.shape), x.dtype) for x in args)
 
 
@@ -591,23 +593,39 @@ def run_through_rpc(
             min_repeat_ms=min_repeat_ms,
             f_preproc=f_prepare,
         )
+        if ref_input and isinstance(ref_input, list):
+            costs = 0
+            for inp in ref_input:
+                args = inp['scalar']
+                for x in inp['tensor']:
+                    args.append(nd.array(x, ctx=ctx))
+                ctx.sync()
+                res = time_f(*args).results
+                if len(res) > 2:  # remove largest and smallest value to reduce variance
+                    res = list(res)
+                    res.sort()
+                    res = tuple(res[1:-1])
+                freq = inp['freq']
+                costs += res[0] * freq
+            costs = (costs, )
 
-        # set input
-        if ref_input:
-            args = [nd.array(x, ctx=ctx) for x in ref_input]
         else:
-            try:
-                random_fill = remote.get_function("tvm.contrib.random.random_fill")
-            except AttributeError:
-                raise AttributeError(
-                    "Please make sure USE_RANDOM is ON in the config.cmake " "on the remote devices"
-                )
-            args = [nd.empty(x[0], dtype=x[1], ctx=ctx) for x in build_result.arg_info]
-            for arg in args:
-                random_fill(arg)
-            ctx.sync()
+            # set input
+            if ref_input:
+                args = [nd.array(x, ctx=ctx) for x in ref_input]
+            else:
+                try:
+                    random_fill = remote.get_function("tvm.contrib.random.random_fill")
+                except AttributeError:
+                    raise AttributeError(
+                        "Please make sure USE_RANDOM is ON in the config.cmake " "on the remote devices"
+                    )
+                args = [nd.empty(x[0], dtype=x[1], ctx=ctx) for x in build_result.arg_info]
+                for arg in args:
+                    random_fill(arg)
+                ctx.sync()
 
-        costs = time_f(*args).results
+            costs = time_f(*args).results
 
         # clean up remote files
         remote.remove(build_result.filename)
