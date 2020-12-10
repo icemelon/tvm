@@ -110,16 +110,17 @@ class SameCast {
     // auto call_cast_fp16 = CallPattern(ExprPattern(cast_op), {fp16}, Attrs{fp16_attrs}, {});
     // //auto cast_fp16 = AttrPattern(call_cast_fp16, Attrs(fp16_attrs));
 
-                     //pattern_ = AltPattern(cast_fp32, cast_fp16);
+    //pattern_ = AltPattern(cast_fp32, cast_fp16);
     pattern_ = cast_fp32;
   }
 
   Expr callback(const Expr& pre, const Expr& post, const Map<DFPattern, Array<Expr>>& node_map) {
-    if (node_map.count(x_fp32_)) {
+    
+    //if (node_map.count(x_fp32_)) {
       LOG(INFO) << "matched fp32";
       LOG(INFO) << AsText(pre, false);
       return node_map[x_fp32_][0];
-    }
+      //}
     // if (node_map.count(x_fp16_)) {
     //   LOG(INFO) << "matched fp16";
     //   LOG(INFO) << AsText(pre, false);
