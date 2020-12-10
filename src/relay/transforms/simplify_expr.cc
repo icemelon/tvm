@@ -35,6 +35,7 @@ namespace relay {
 
 static Op reshape_op = Op::Get("reshape");
 static Op reverse_reshape_op = Op::Get("contrib_reverse_reshape");
+static Op cast_op = Op::Get("cast");
 
 /*!
  * \brief SimplifyReshape matches the pattern of consecutive reshape or reverse_reshape ops,
@@ -75,6 +76,77 @@ class SimplifyReshape {
   DFPattern pattern_;
 };
 
+class SimplifyCast {
+ public:
+  SimplifyCast() {
+    x_ = WildcardPattern(make_object<WildcardPatternNode>());
+    cast1_ = CallPattern(ExprPattern(cast_op), {x_}, Attrs{}, {});
+    cast2_ = CallPattern(ExprPattern(cast_op), {cast1_}, Attrs{}, {});
+    pattern_ = cast2_;
+  }
+
+  Expr callback(const Expr& pre, const Expr& post, const Map<DFPattern, Array<Expr>>& node_map) {
+    auto x = node_map[x_][0];
+    
+    return MakeCast(x, Downcast<TensorType>(pre->checked_type())->dtype);
+    // auto cast2 = node_map[cast2_][0];
+    // Downcast<Call>(cast2)->
+    // return x;
+  }
+
+  DFPattern pattern() const { return pattern_; }
+
+ private:
+  DFPattern x_;
+  DFPattern cast1_;
+  DFPattern cast2_;
+  DFPattern pattern_;
+};
+
+class SameCast {
+ public:
+  SameCast() {
+    x_fp32_ = WildcardPattern(make_object<WildcardPatternNode>());
+    auto fp32 = DataTypePattern(x_fp32_, DataType::Float(32));
+    auto call_cast_fp32 = CallPattern(ExprPattern(cast_op), {fp32}, Attrs{}, {});
+    //auto call_cast_fp32 = CallPattern(ExprPattern(cast_op), {fp32}, Attrs{fp32_attrs}, {});
+    auto fp32_attrs = make_object<CastAttrs>();
+    fp32_attrs->dtype = DataType::Float(32);
+    auto cast_fp32 = AttrPattern(call_cast_fp32, Attrs(fp32_attrs));
+
+    // x_fp16_ = WildcardPattern(make_object<WildcardPatternNode>());
+    // auto fp16 = DataTypePattern(x_fp16_, DataType::Float(16));
+    // auto fp16_attrs = make_object<CastAttrs>();
+    // fp16_attrs->dtype = DataType::Float(16);
+    // auto call_cast_fp16 = CallPattern(ExprPattern(cast_op), {fp16}, Attrs{fp16_attrs}, {});
+    // //auto cast_fp16 = AttrPattern(call_cast_fp16, Attrs(fp16_attrs));
+
+                     //pattern_ = AltPattern(cast_fp32, cast_fp16);
+    pattern_ = cast_fp32;
+  }
+
+  Expr callback(const Expr& pre, const Expr& post, const Map<DFPattern, Array<Expr>>& node_map) {
+    if (node_map.count(x_fp32_)) {
+      LOG(INFO) << "matched fp32";
+      LOG(INFO) << AsText(pre, false);
+      return node_map[x_fp32_][0];
+    }
+    // if (node_map.count(x_fp16_)) {
+    //   LOG(INFO) << "matched fp16";
+    //   LOG(INFO) << AsText(pre, false);
+    //   return node_map[x_fp16_][0];
+    // }
+    return post;
+  }
+
+  DFPattern pattern() const { return pattern_; }
+
+ private:
+  DFPattern x_fp32_, x_fp16_;
+  DFPattern pattern_;
+};
+
+
 /*!
  * \brief ExprSimplifier simplifies the Relay expression.
  */
@@ -87,8 +159,24 @@ class ExprSimplifier {
       Map<DFPattern, Array<Expr>> node_map = args[2];
       *rv = simplify_reshape_.callback(pre, post, node_map);
     };
+    auto cast_func = [this](TVMArgs args, TVMRetValue* rv) {
+      Expr pre = args[0];
+      Expr post = args[1];
+      Map<DFPattern, Array<Expr>> node_map = args[2];
+      *rv = simplify_cast_.callback(pre, post, node_map);
+    };
+    auto same_cast_func = [this](TVMArgs args, TVMRetValue* rv) {
+      Expr pre = args[0];
+      Expr post = args[1];
+      Map<DFPattern, Array<Expr>> node_map = args[2];
+      *rv = same_cast_.callback(pre, post, node_map);
+    };
     callbacks_.push_back(
         DFPatternCallback(simplify_reshape_.pattern(), PackedFunc(reshape_func), true));
+    callbacks_.push_back(
+        DFPatternCallback(simplify_cast_.pattern(), PackedFunc(cast_func), true));
+    callbacks_.push_back(
+        DFPatternCallback(same_cast_.pattern(), PackedFunc(same_cast_func), true));
   }
 
   Expr Simplify(const Expr& expr) { return RewritePatterns(callbacks_, expr, mod_); }
@@ -97,6 +185,8 @@ class ExprSimplifier {
   IRModule mod_;
   /*! \brief Simplify reshape pattern */
   SimplifyReshape simplify_reshape_;
+  SimplifyCast simplify_cast_;
+  SameCast same_cast_;
   /*! \brief Callbacks for expr simplification */
   Array<DFPatternCallback> callbacks_;
 };

@@ -58,5 +58,25 @@ def test_simplify_reshape():
     assert tvm.ir.structural_equal(zz, after)
 
 
+def test_simplify_cast():
+    def before():
+        x = relay.var("x", shape=(100, 200), dtype="float32")
+        w = relay.var("w", shape=(50, 200), dtype="float32")
+        y = relay.nn.dense(x.astype("float32"), w)
+        return relay.Function([x, w], y)
+
+    def expected():
+        x = relay.var("x", shape=(100, 200), dtype="float32")
+        w = relay.var("w", shape=(50, 200), dtype="float32")
+        y = relay.nn.dense(x, w)
+        return relay.Function([x, w], y)
+
+    z = before()
+    zz = run_opt_pass(z, transform.SimplifyExpr())
+    after = run_opt_pass(expected(), transform.InferType())
+    assert tvm.ir.structural_equal(zz, after)
+
+
 if __name__ == "__main__":
-    test_simplify_reshape()
+    #test_simplify_reshape()
+    test_simplify_cast()
