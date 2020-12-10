@@ -64,18 +64,25 @@ def _init_op(new_op):
 def _softmax_op(new_op):
     """softmax/log_softmax"""
 
-    def _impl(inputs, attrs, _dtype="float32"):
+    def _impl(inputs, attrs):
         axis = attrs.get_int("axis", -1)
         use_length = attrs.get_bool("use_length", False)
+        data = inputs[0]
+        data_type = _infer_type(data).checked_type
+        data_shape = data_type.shape
+        data_dtype = data_type.dtype
+        fp16 = True if data_dtype == "float16" else False
+        if fp16:
+            print('cast softmax input from fp16 to fp32')
+            data = inputs[0].astype("float32")
+            data_dtype = "float32"
+
         if use_length:
             # The second arg is valid_length. We can use sequence mask to mask the input before
             # computing softmax
             assert len(inputs) == 2
 
-            data = inputs[0]
             length = inputs[1]
-            data_shape = _infer_shape(data)
-            data_dtype = _infer_type(data).checked_type.dtype
             length_shape = _infer_shape(length)
 
             if axis < 0:
@@ -93,7 +100,7 @@ def _softmax_op(new_op):
 
                 # Reshape the data and length to satisfy sequence mask
                 data = _op.reshape(data, newshape=(new_batch_size, -1))
-                length = _op.reshape(length, newshape=(new_batch_size))
+                length = _op.reshape(length, newshape=(new_batch_size,))
 
                 # Input data is now 2D, we can set the axis = 1
                 axis = 1
@@ -111,12 +118,17 @@ def _softmax_op(new_op):
 
             # Apply softmax
             res = new_op(res, axis=axis)
+            if fp16:
+                res = res.astype("float16")
 
             # Reshape back to input data shape
             if len(data_shape) > 2:
                 return _op.reshape(res, newshape=data_shape)
             return res
-        return new_op(inputs[0], axis=axis)
+        res = new_op(inputs[0], axis=axis)
+        if fp16:
+            res = res.astype("float16")
+        return res
 
     return _impl
 

@@ -489,10 +489,18 @@ def _mx_layer_norm(inputs, attrs):
         raise tvm.error.OpAttributeUnimplemented(
             'Attribute "output_mean_var" is not supported for operator Layer Norm.'
         )
+    dtype = _infer_type(inputs[0]).checked_type.dtype
+    #fp16 = True if dtype == 'float16' else False
+    # if fp16:
+    #     for i in range(len(inputs)):
+    #         inputs[i] = inputs[i].astype('float32')
     new_attrs = {}
     new_attrs["axis"] = attrs.get_int("axis", -1)
     new_attrs["epsilon"] = attrs.get_float("eps", 1e-5)
-    return _op.nn.layer_norm(*inputs, **new_attrs)
+    ret = _op.nn.layer_norm(*inputs, **new_attrs)
+    # if fp16:
+    #     ret = ret.astype("float16")
+    return ret
 
 
 def _mx_slice(inputs, attrs):
@@ -648,6 +656,7 @@ def _mx_pad(inputs, attrs):
 
 
 def _mx_leaky_relu(inputs, attrs):
+    dtype = _infer_type(inputs[0]).checked_type.dtype
     act_type = attrs.get_str("act_type", "leaky")
     if act_type == "leaky":
         return _op.nn.leaky_relu(inputs[0], alpha=attrs.get_float("slope", 0.25))
@@ -657,10 +666,10 @@ def _mx_leaky_relu(inputs, attrs):
     if act_type == "elu":
         # -slope * relu(1-exp(x)) + relu(x)
         slope = attrs.get_float("slope", 0.25)
-        one = _expr.const(1, dtype="float32")
+        one = _expr.const(1, dtype=dtype)
         x = inputs[0]
         mslope = _op.nn.relu(_op.subtract(one, _op.exp(x)))
-        mslope = _op.multiply(mslope, _expr.const(-slope, dtype="float32"))
+        mslope = _op.multiply(mslope, _expr.const(-slope, dtype=dtype))
         return _op.add(mslope, _op.nn.relu(x))
     if act_type == "rrelu":
         # NOTE this is only converted for inference.
@@ -670,13 +679,22 @@ def _mx_leaky_relu(inputs, attrs):
         return _op.nn.leaky_relu(inputs[0], alpha=alpha)
     if act_type == "gelu":
         # 0.5 * x * (1 + erf(x / sqrt(2)))
-        sqrt2 = _expr.const(math.sqrt(2), dtype="float32")
-        erf = _op.erf(_op.divide(inputs[0], sqrt2))
-        one = _expr.const(1, dtype="float32")
+        fp16 = True if dtype == "float16" else False
+        if fp16:
+            x = inputs[0].astype("float32")
+            dtype = "float32"
+        else:
+            x = inputs[0]
+        sqrt2 = _expr.const(math.sqrt(2), dtype=dtype)
+        erf = _op.erf(_op.divide(x, sqrt2))
+        one = _expr.const(1, dtype=dtype)
         erf_plus_one = _op.add(one, erf)
-        half = _expr.const(0.5, dtype="float32")
-        half_x = _op.multiply(inputs[0], half)
-        return _op.multiply(half_x, erf_plus_one)
+        half = _expr.const(0.5, dtype=dtype)
+        half_x = _op.multiply(x, half)
+        ret = _op.multiply(half_x, erf_plus_one)
+        if fp16:
+            ret = ret.astype("float16")
+        return ret
     raise tvm.error.OpNotImplemented(
         "Operator {} is not supported for frontend MXNet.".format(act_type)
     )
@@ -830,7 +848,10 @@ def _mx_arange(inputs, attrs):
     new_attrs["stop"] = stop
     new_attrs["step"] = _expr.const(attrs.get_float("step", 1.0), dtype=dtype)
     new_attrs["dtype"] = dtype
-    return _op.arange(**new_attrs)
+    ret = _op.arange(**new_attrs)
+    # print(ret)
+    # exit()
+    return ret
 
 
 # pylint: disable=unused-argument
@@ -967,6 +988,7 @@ def _mx_amp_multicast(inputs, attrs):
         dtype = "float16"
     if not cast_narrow and has_float32:
         dtype = "float32"
+    print('amp multicast to', dtype)
     return [_op.cast(x, dtype) for x in inputs]
 
 
@@ -2763,7 +2785,7 @@ def _from_mxnet_impl(symbol, shape_dict, dtype_info, params=None, mod=None):
     if isinstance(symbol, dict):
         jgraph = symbol
     else:
-        jgraph = json.loads(symbol.tojson())
+        jgraph = json.loads(symbol.tojson(remove_amp_cast=False))
     jnodes = jgraph["nodes"]
     node_map = {}
     shape_idx = 0
@@ -2788,6 +2810,9 @@ def _from_mxnet_impl(symbol, shape_dict, dtype_info, params=None, mod=None):
         attrs = StrAttrsDict(node.get("attrs", {}))
         node_name = node["name"]
         op_name = node["op"]
+        #print(op_name)
+        if op_name == 'amp_cast':
+            print('amp_cast to', attrs.get_str('dtype'))
         if op_name == "null":
             if isinstance(shape_dict, dict):
                 shape = shape_dict[node_name] if node_name in shape_dict else None
@@ -2817,6 +2842,15 @@ def _from_mxnet_impl(symbol, shape_dict, dtype_info, params=None, mod=None):
                 res = [res]
             else:
                 raise RuntimeError("unexpected type %s" % type(res))
+            # try:
+            #     res[0] = _infer_type(res[0])
+            #     # print(res[0])
+            # except:
+            #     print('-'*100)
+            #     print("Wrong shape!!!")
+            #     print(res[0])
+            #     exit()
+            #print(res[0])
             node_map[nid] = res
     outputs = [node_map[e[0]][e[1]] for e in jgraph["heads"]]
     outputs = outputs[0] if len(outputs) == 1 else _expr.Tuple(outputs)
@@ -2834,6 +2868,9 @@ def _update_shape_dtype(shape, dtype, params):
     if isinstance(dtype, str):
         for k, v in params.items():
             if v.dtype != dtype:
+                print('what?')
+                print(v.dtype, dtype)
+                v.astype(dtype)
                 raise ValueError("%s: dtype not expected %s vs %s" % (k, dtype, v.dtype))
     else:
         dtype = dtype.copy()
@@ -2895,6 +2932,7 @@ def from_mxnet(symbol, shape=None, dtype="float32", arg_params=None, aux_params=
         for name in shape:
             inputs.append(mx.sym.Variable(name))
         sym = symbol(*inputs)
+        sym = sym[0]
         if isinstance(sym, (list, tuple)):
             sym = mx.sym.Group(sym)
         shape, dtype = _update_shape_dtype(shape, dtype, params)
@@ -2904,5 +2942,5 @@ def from_mxnet(symbol, shape=None, dtype="float32", arg_params=None, aux_params=
     else:
         msg = "mxnet.Symbol or gluon.HybridBlock expected, got {}".format(type(symbol))
         raise ValueError(msg)
-    mod["main"] = func
+    mod["main"] = _infer_type(func, mod=mod)
     return mod, params

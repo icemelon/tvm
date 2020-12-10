@@ -22,7 +22,7 @@ from tvm import te
 from tvm.contrib import graph_runtime
 from tvm import relay
 import mxnet as mx
-
+from mxnet.contrib import amp
 from mxnet import gluon
 from mxnet.gluon.model_zoo import vision
 import random
@@ -38,9 +38,12 @@ def verify_mxnet_frontend_impl(
     out_shape=(1, 1000),
     gluon_impl=False,
     name=None,
-    dtype="float32",
+    dtype="float16",
 ):
     """Use name different from test to avoid pytest picking it up"""
+    if dtype == "float16":
+        print('amp init')
+        amp.init()
     if gluon_impl:
 
         def get_gluon_output(name, x):
@@ -51,7 +54,8 @@ def verify_mxnet_frontend_impl(
                 inputs=mx.sym.var("data"),
                 params=net.collect_params(),
             )
-            out = net_sym(mx.nd.array(x.astype(dtype))).asnumpy()
+            out = net_sym(mx.nd.array(x.astype(dtype)).astype(dtype)).asnumpy()
+            print('gluon out', out.dtype)
             return out, net_sym
 
     else:
@@ -59,23 +63,37 @@ def verify_mxnet_frontend_impl(
         def get_mxnet_output(symbol, x, dtype="float32"):
             from collections import namedtuple
 
+            mx_ctx = mx.gpu(0)
             Batch = namedtuple("Batch", ["data"])
             mod = mx.mod.Module(symbol, label_names=None)
             mod.bind(data_shapes=[("data", x.shape)], for_training=False)
-            mod.init_params()
-            mod.forward(Batch([mx.nd.array(x.astype(dtype))]))
-            out = mod.get_outputs()[0].asnumpy()
+            mod.init_params()#ctx=mx_ctx)
+            print('cast')
+            #mod.cast('float16')
+            print('here')
+            x = mx.nd.array(x.astype(dtype), ctx=mx_ctx).astype(dtype)
+            print(x.shape, x.dtype)
+            mod.forward(Batch([x]))
+            out = mod.get_outputs()[0]#.asnumpy()
+            #print(type(out))
+            print('mx out', out.dtype)
+            print(out.asnumpy())
+            #print(out)
             args, auxs = mod.get_params()
+            out = out.asnumpy()
             return out, args, auxs
 
     def get_tvm_output(symbol, x, args, auxs, target, ctx, dtype="float32"):
         shape_dict = {"data": x.shape}
+        print('aaa')
+        print(symbol.tojson(remove_amp_cast=False))
         if gluon_impl:
-            mod, params = relay.frontend.from_mxnet(symbol, shape_dict)
+            mod, params = relay.frontend.from_mxnet(symbol, shape_dict, dtype=dtype)
         else:
             mod, params = relay.frontend.from_mxnet(
-                symbol, shape_dict, arg_params=args, aux_params=auxs
+                symbol, shape_dict, arg_params=args, aux_params=auxs, dtype=dtype
             )
+        print(mod)
         with tvm.transform.PassContext(opt_level=3):
             lib = relay.build(mod, target, params=params)
         m = graph_runtime.GraphModule(lib["default"](ctx))
@@ -97,7 +115,11 @@ def verify_mxnet_frontend_impl(
         mx_out, args, auxs = get_mxnet_output(mx_symbol, x, dtype)
         assert "data" not in args
         for target, ctx in tvm.testing.enabled_targets():
+            if "cuda" not in target:
+                continue
             tvm_out = get_tvm_output(mx_symbol, x, args, auxs, target, ctx, dtype)
+            print(tvm_out.dtype)
+            tvm_out = tvm_out.astype('float32')
             tvm.testing.assert_allclose(mx_out, tvm_out, rtol=1e-5, atol=1e-5)
 
 
@@ -158,9 +180,10 @@ def test_forward_prelu():
 @tvm.testing.uses_gpu
 def test_forward_gelu():
     data = mx.sym.var("data")
-    data = mx.sym.concat(data, -data, dim=1)  # negative part explicitly
+    #data = mx.sym.concat(data, -data, dim=0)  # negative part explicitly
     mx_sym = mx.sym.LeakyReLU(data, act_type="gelu")
-    verify_mxnet_frontend_impl(mx_sym, (1, 3, 100, 100), (1, 6, 100, 100))
+    #verify_mxnet_frontend_impl(mx_sym, (1, 3, 100, 100), (1, 6, 100, 100), dtype='float16')
+    verify_mxnet_frontend_impl(mx_sym, (2, 4), (2, 4))#, dtype='float16')
 
 
 @tvm.testing.uses_gpu
@@ -175,13 +198,13 @@ def test_forward_softrelu():
 def test_forward_fc_flatten():
     # test flatten=True option in mxnet 0.11.1
     data = mx.sym.var("data")
-    try:
-        mx_sym = mx.sym.FullyConnected(data, num_hidden=100, flatten=True)
-        verify_mxnet_frontend_impl(mx_sym, (1, 3, 100, 100), (1, 100))
-        mx_sym = mx.sym.FullyConnected(mx.sym.Flatten(data), num_hidden=100, flatten=False)
-        verify_mxnet_frontend_impl(mx_sym, (1, 3, 100, 100), (1, 100))
-    except:
-        pass
+    #try:
+    mx_sym = mx.sym.FullyConnected(data, num_hidden=100, flatten=True)
+    verify_mxnet_frontend_impl(mx_sym, (1, 3, 100, 100), (1, 100))
+    mx_sym = mx.sym.FullyConnected(mx.sym.Flatten(data), num_hidden=100, flatten=False)
+    verify_mxnet_frontend_impl(mx_sym, (1, 3, 100, 100), (1, 100))
+    # except:
+    #     pass
 
 
 @tvm.testing.uses_gpu
@@ -1240,27 +1263,36 @@ def test_forward_instance_norm():
 
 @tvm.testing.uses_gpu
 def test_forward_layer_norm():
-    def verify(shape, axis=-1):
-        x = np.random.uniform(size=shape).astype("float32")
-        gamma = np.random.uniform(size=(shape[axis])).astype("float32")
-        beta = np.random.uniform(size=(shape[axis])).astype("float32")
-        ref_res = mx.nd.LayerNorm(mx.nd.array(x), mx.nd.array(gamma), mx.nd.array(beta), axis=axis)
+    def verify(shape, axis=-1, dtype="float32"):
+        if dtype == "float16":
+            amp.init()
+        x = np.random.uniform(size=shape).astype(dtype)
+        gamma = np.random.uniform(size=(shape[axis])).astype(dtype)
+        beta = np.random.uniform(size=(shape[axis])).astype(dtype)
+        ref_res = mx.nd.LayerNorm(mx.nd.array(x).astype(dtype),
+                                  mx.nd.array(gamma).astype(dtype),
+                                  mx.nd.array(beta).astype(dtype),
+                                  axis=axis)
         mx_sym = mx.sym.LayerNorm(
             mx.sym.var("x"), mx.sym.var("gamma"), mx.sym.var("beta"), axis=axis
         )
         shape_dict = {"x": x.shape, "gamma": gamma.shape, "beta": beta.shape}
-        mod, _ = relay.frontend.from_mxnet(mx_sym, shape_dict)
+        mod, _ = relay.frontend.from_mxnet(mx_sym, shape_dict, dtype=dtype)
+        print(mod)
         for target, ctx in tvm.testing.enabled_targets():
-            for kind in ["graph", "debug"]:
+            if 'cuda' not in target:
+                continue
+            #for kind in ["graph", "debug"]:
+            for kind in ["graph"]:
                 intrp = relay.create_executor(kind, mod=mod, ctx=ctx, target=target)
                 op_res = intrp.evaluate()(x, gamma, beta)
                 tvm.testing.assert_allclose(
-                    op_res.asnumpy(), ref_res.asnumpy(), rtol=1e-3, atol=1e-5
+                    op_res.asnumpy(), ref_res.asnumpy(), rtol=1e-3, atol=1e-2
                 )
 
-    verify((2, 5))
-    verify((2, 5), axis=0)
-    verify((2, 5, 6))
+    verify((10, 100), dtype='float16')
+    verify((10, 100), axis=0, dtype='float16')
+    verify((2, 20, 60), dtype='float16')
 
 
 @tvm.testing.uses_gpu
@@ -1892,7 +1924,9 @@ def test_forward_box_decode():
 @tvm.testing.uses_gpu
 def test_forward_softmax():
     def verify(data_shape, axis, use_length, length):
-        dtype = "float32"
+        #dtype = "float32"
+        dtype = "float16"
+        amp.init()
         x = np.random.uniform(low=-100, high=100, size=data_shape).astype(dtype)
         if use_length:
             ref_res = mx.nd.softmax(
@@ -1915,9 +1949,10 @@ def test_forward_softmax():
             mx_sym = mx.symbol.softmax(data=mx.sym.var("data"), axis=axis)
             shape_dict = {"data": data_shape}
             mod, _ = relay.frontend.from_mxnet(mx_sym, shape_dict)
+        print(mod)
 
         for target, ctx in tvm.testing.enabled_targets():
-            for kind in ["graph", "debug"]:
+            for kind in ["graph"]:#, "debug"]:
                 intrp = relay.create_executor(kind, mod=mod, ctx=ctx, target=target)
                 if use_length:
                     op_res = intrp.evaluate()(x, length)
@@ -2235,4 +2270,8 @@ def test_forward_split_v2(
 
 
 if __name__ == "__main__":
-    pytest.main(["test_forward.py"])
+    test_forward_fc_flatten()
+    #test_forward_gelu()
+    #test_forward_layer_norm()
+    #test_forward_softmax()
+    #pytest.main(["test_forward.py"])
