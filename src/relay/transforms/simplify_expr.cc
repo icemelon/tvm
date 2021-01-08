@@ -103,29 +103,23 @@ class SameCast {
     attrs.Set("dtype", String("float32"));
     auto cast_fp32 = IsOp("cast")({x_fp32_.HasDtype("float32")}).HasAttr(attrs);
 
-    // x_fp16_ = WildcardPattern(make_object<WildcardPatternNode>());
-    // auto fp16 = DataTypePattern(x_fp16_, DataType::Float(16));
-    // auto fp16_attrs = make_object<CastAttrs>();
-    // fp16_attrs->dtype = DataType::Float(16);
-    // auto call_cast_fp16 = CallPattern(ExprPattern(cast_op), {fp16}, Attrs{fp16_attrs}, {});
-    // //auto cast_fp16 = AttrPattern(call_cast_fp16, Attrs(fp16_attrs));
+    x_fp16_ = WildcardPattern(make_object<WildcardPatternNode>());
+    auto fp16 = DataTypePattern(x_fp16_, DataType::Float(16));
+    Map<String, ObjectRef> fp16_attrs;
+    fp16_attrs.Set("dtype", String("float16"));
+    auto call_cast_fp16 = CallPattern(ExprPattern(cast_op), {fp16}, Attrs{}, {});
+    auto cast_fp16 = AttrPattern(call_cast_fp16, DictAttrs(fp16_attrs));
 
-    //pattern_ = AltPattern(cast_fp32, cast_fp16);
-    pattern_ = cast_fp32;
+    pattern_ = AltPattern(cast_fp32, cast_fp16);
   }
 
   Expr callback(const Expr& pre, const Expr& post, const Map<DFPattern, Array<Expr>>& node_map) {
-    
-    //if (node_map.count(x_fp32_)) {
-      LOG(INFO) << "matched fp32";
-      LOG(INFO) << AsText(pre, false);
+    if (node_map.count(x_fp32_)) {
       return node_map[x_fp32_][0];
-      //}
-    // if (node_map.count(x_fp16_)) {
-    //   LOG(INFO) << "matched fp16";
-    //   LOG(INFO) << AsText(pre, false);
-    //   return node_map[x_fp16_][0];
-    // }
+    }
+    if (node_map.count(x_fp16_)) {
+      return node_map[x_fp16_][0];
+    }
     return post;
   }
 

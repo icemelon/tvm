@@ -986,9 +986,12 @@ def _mx_amp_multicast(inputs, attrs):
     dtype = dtypes[0]
     if cast_narrow and has_float16:
         dtype = "float16"
-    if not cast_narrow and has_float32:
+    if not cast_narrow:
+        # This could be a bug in MxNet that it will always cast to fp32 when cast_narrow is False
         dtype = "float32"
-    print('amp multicast to', dtype)
+    print(f'amp_multicast to {dtype}, cast_narrow: {cast_narrow}')
+    for x in inputs:
+        print('- ', x)
     return [_op.cast(x, dtype) for x in inputs]
 
 
@@ -2870,7 +2873,8 @@ def _update_shape_dtype(shape, dtype, params):
             if v.dtype != dtype:
                 print('what?')
                 print(v.dtype, dtype)
-                v.astype(dtype)
+                print(type(v))
+                # v.astype(dtype)
                 raise ValueError("%s: dtype not expected %s vs %s" % (k, dtype, v.dtype))
     else:
         dtype = dtype.copy()
@@ -2927,7 +2931,7 @@ def from_mxnet(symbol, shape=None, dtype="float32", arg_params=None, aux_params=
             raise ValueError("arg_params and aux_params ae not used when importing HybridBlock")
         params = {}
         for k, v in symbol.collect_params().items():
-            params[k] = _nd.array(v.data().asnumpy())
+            params[k] = _nd.array(v.data().asnumpy().astype(dtype))
         inputs = []
         for name in shape:
             inputs.append(mx.sym.Variable(name))

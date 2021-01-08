@@ -81,7 +81,7 @@ def softmax_strategy_cuda(attrs, inputs, out_type, target):
             wrap_compute_softmax(topi.cuda.softmax_cudnn),
             wrap_topi_schedule(topi.cuda.schedule_softmax_cudnn),
             name="softmax.cudnn",
-            plevel=15,
+            plevel=5,
         )
     return strategy
 

@@ -71,11 +71,12 @@ def _softmax_op(new_op):
         data_type = _infer_type(data).checked_type
         data_shape = data_type.shape
         data_dtype = data_type.dtype
-        fp16 = True if data_dtype == "float16" else False
-        if fp16:
-            print('cast softmax input from fp16 to fp32')
-            data = inputs[0].astype("float32")
-            data_dtype = "float32"
+        #fp16 = True if data_dtype == "float16" else False
+        # if fp16:
+        #     print('cast softmax input from fp16 to fp32')
+        #     data = inputs[0].astype("float32")
+        #     print(data)
+        #     data_dtype = "float32"
 
         if use_length:
             # The second arg is valid_length. We can use sequence mask to mask the input before
@@ -118,16 +119,16 @@ def _softmax_op(new_op):
 
             # Apply softmax
             res = new_op(res, axis=axis)
-            if fp16:
-                res = res.astype("float16")
+            # if fp16:
+            #     res = res.astype("float16")
 
             # Reshape back to input data shape
             if len(data_shape) > 2:
                 return _op.reshape(res, newshape=data_shape)
             return res
-        res = new_op(inputs[0], axis=axis)
-        if fp16:
-            res = res.astype("float16")
+        res = new_op(data, axis=axis)
+        # if fp16:
+        #     res = res.astype("float16")
         return res
 
     return _impl
