@@ -990,8 +990,8 @@ def _mx_amp_multicast(inputs, attrs):
         # This could be a bug in MxNet that it will always cast to fp32 when cast_narrow is False
         dtype = "float32"
     print(f'amp_multicast to {dtype}, cast_narrow: {cast_narrow}')
-    for x in inputs:
-        print('- ', x)
+    # for x in inputs:
+    #     print('- ', x)
     return [_op.cast(x, dtype) for x in inputs]
 
 
@@ -2936,7 +2936,6 @@ def from_mxnet(symbol, shape=None, dtype="float32", arg_params=None, aux_params=
         for name in shape:
             inputs.append(mx.sym.Variable(name))
         sym = symbol(*inputs)
-        sym = sym[0]
         if isinstance(sym, (list, tuple)):
             sym = mx.sym.Group(sym)
         shape, dtype = _update_shape_dtype(shape, dtype, params)
