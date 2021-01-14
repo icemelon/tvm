@@ -98,19 +98,17 @@ class SimplifyCast {
 class SameCast {
  public:
   SameCast() {
-    x_fp32_ = WildcardPattern();
-    Map<String, ObjectRef> attrs;
-    attrs.Set("dtype", String("float32"));
-    auto cast_fp32 = IsOp("cast")({x_fp32_.HasDtype("float32")}).HasAttr(attrs);
+    x_fp32_ = WildcardPattern(make_object<WildcardPatternNode>());
+    Map<String, ObjectRef> fp32_attrs;
+    fp32_attrs.Set("dtype", String("float32"));
+    auto cast_fp32 = IsOp("cast")({x_fp32_.HasDtype("float32")}).HasAttr(fp32_attrs);
 
     x_fp16_ = WildcardPattern(make_object<WildcardPatternNode>());
-    auto fp16 = DataTypePattern(x_fp16_, DataType::Float(16));
     Map<String, ObjectRef> fp16_attrs;
     fp16_attrs.Set("dtype", String("float16"));
-    auto call_cast_fp16 = CallPattern(ExprPattern(cast_op), {fp16}, Attrs{}, {});
-    auto cast_fp16 = AttrPattern(call_cast_fp16, DictAttrs(fp16_attrs));
+    auto cast_fp16 = IsOp("cast")({x_fp16_.HasDtype("float16")}).HasAttr(fp16_attrs);
 
-    pattern_ = AltPattern(cast_fp32, cast_fp16);
+    pattern_ = cast_fp32 || cast_fp16;
   }
 
   Expr callback(const Expr& pre, const Expr& post, const Map<DFPattern, Array<Expr>>& node_map) {
