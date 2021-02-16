@@ -86,14 +86,9 @@ def _softmax_op(new_op):
 
             # Sequence_mask supports axis = 0 and 1 and requires data to be in specific format.
             if axis == data_ndims - 1 and data_ndims > 2 and length_ndims == 2:
-                new_batch_size = 1
-                for dim in range(length_ndims):
-                    assert data_shape[dim] == length_shape[dim]
-                    new_batch_size *= data_shape[dim]
-
                 # Reshape the data and length to satisfy sequence mask
-                data = _op.reshape(data, newshape=(new_batch_size, -1))
-                length = _op.reshape(length, newshape=(new_batch_size))
+                data = _op.reverse_reshape(data, newshape=(-1, 0))
+                length = _op.reshape(length, newshape=(-1))
 
                 # Input data is now 2D, we can set the axis = 1
                 axis = 1
