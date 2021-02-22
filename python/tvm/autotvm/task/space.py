@@ -793,6 +793,8 @@ class ConfigSpace(object):
         """
         if isinstance(flop, (expr.IntImm, expr.FloatImm)):
             flop = flop.value
+        if isinstance(flop, expr.PrimExpr):
+            flop = 0
         self.flop += float(flop)
 
     def raise_error(self, msg):
