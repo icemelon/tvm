@@ -45,15 +45,15 @@ class DynamicToStaticMutator : public MixedModeMutator {
            }
            return Expr(nullptr);
          }},
-        {Op::Get("dyn.tile"),
-         [this](const CallNode* call_node) {
-           auto args = PrepareArgs(call_node);
-           if (const ConstantNode* reps = args[1].as<ConstantNode>()) {
-             ICHECK_EQ(reps->data->ndim, 1);
-             return MakeTile(call_node->args[0], ToVector(reps->data));
-           }
-           return Expr(nullptr);
-         }},
+        // {Op::Get("dyn.tile"),
+        //  [this](const CallNode* call_node) {
+        //    auto args = PrepareArgs(call_node);
+        //    if (const ConstantNode* reps = args[1].as<ConstantNode>()) {
+        //      ICHECK_EQ(reps->data->ndim, 1);
+        //      return MakeTile(call_node->args[0], ToVector(reps->data));
+        //    }
+        //    return Expr(nullptr);
+        //  }},
         {Op::Get("dyn.topk"),
          [this](const CallNode* call_node) {
            auto args = PrepareArgs(call_node);
@@ -185,34 +185,34 @@ class DynamicToStaticMutator : public MixedModeMutator {
            }
            return Expr(nullptr);
          }},
-        {Op::Get("dyn.strided_slice"),
-         [this](const CallNode* call_node) {
-           auto args = PrepareArgs(call_node);
-           const ConstantNode* begin = args[1].as<ConstantNode>();
-           const ConstantNode* end = args[2].as<ConstantNode>();
-           const ConstantNode* stride = args[3].as<ConstantNode>();
-           if (begin && end && stride) {
-             ICHECK_EQ(begin->data->ndim, 1);
-             ICHECK_EQ(end->data->ndim, 1);
-             ICHECK_EQ(stride->data->ndim, 1);
-             const StridedSliceAttrs* param = call_node->attrs.as<StridedSliceAttrs>();
-             ICHECK(param);
-             return MakeStridedSlice(call_node->args[0], ToVector(begin->data), ToVector(end->data),
-                                     ToVector(stride->data), param->slice_mode);
-           }
-           return Expr(nullptr);
-         }},
-        {Op::Get("dyn.sparse_to_dense"),
-         [this](const CallNode* call_node) {
-           auto args = PrepareArgs(call_node);
-           const ConstantNode* output_shape = args[3].as<ConstantNode>();
-           if (output_shape) {
-             ICHECK_EQ(output_shape->data->ndim, 1);
-             return MakeSparseToDense(call_node->args[0], ToVector(output_shape->data),
-                                      call_node->args[1], call_node->args[2]);
-           }
-           return Expr(nullptr);
-         }},
+        // {Op::Get("dyn.strided_slice"),
+        //  [this](const CallNode* call_node) {
+        //    auto args = PrepareArgs(call_node);
+        //    const ConstantNode* begin = args[1].as<ConstantNode>();
+        //    const ConstantNode* end = args[2].as<ConstantNode>();
+        //    const ConstantNode* stride = args[3].as<ConstantNode>();
+        //    if (begin && end && stride) {
+        //      ICHECK_EQ(begin->data->ndim, 1);
+        //      ICHECK_EQ(end->data->ndim, 1);
+        //      ICHECK_EQ(stride->data->ndim, 1);
+        //      const StridedSliceAttrs* param = call_node->attrs.as<StridedSliceAttrs>();
+        //      ICHECK(param);
+        //      return MakeStridedSlice(call_node->args[0], ToVector(begin->data), ToVector(end->data),
+        //                              ToVector(stride->data), param->slice_mode);
+        //    }
+        //    return Expr(nullptr);
+        //  }},
+        // {Op::Get("dyn.sparse_to_dense"),
+        //  [this](const CallNode* call_node) {
+        //    auto args = PrepareArgs(call_node);
+        //    const ConstantNode* output_shape = args[3].as<ConstantNode>();
+        //    if (output_shape) {
+        //      ICHECK_EQ(output_shape->data->ndim, 1);
+        //      return MakeSparseToDense(call_node->args[0], ToVector(output_shape->data),
+        //                               call_node->args[1], call_node->args[2]);
+        //    }
+        //    return Expr(nullptr);
+        //  }},
     };
     Map<BaseFunc, GlobalVar> vars;
     for (auto kv : mod_->functions) {

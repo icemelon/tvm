@@ -341,7 +341,7 @@ Expr DepthwiseConv2DThirdTerm(const Expr& weight, const Expr& input_zero_point,
   auto reduced_t3 = Sum(Cast(weight, DataType::Int(32)), axes_t3, false, false);
 
   // Find the newshape depending on NCHW/NHWC layout.
-  Array<Integer> newshape;
+  Array<IndexExpr> newshape;
   if (param->data_layout == "NCHW") {
     newshape = {1, out_channels * channel_multiplier, 1, 1};
   } else if (param->data_layout == "NHWC") {
@@ -491,7 +491,7 @@ Expr Conv2DThirdTerm(const Expr& weight, const Expr& input_zero_point, const Con
   auto reduced_t3 = Sum(Cast(weight, DataType::Int(32)), axes_t3, false, false);
 
   // Find the newshape depending on NCHW/NHWC layout.
-  Array<Integer> newshape;
+  Array<IndexExpr> newshape;
   if (param->data_layout == "NCHW") {
     newshape = {1, out_channels, 1, 1};
   } else if (param->data_layout == "NHWC") {

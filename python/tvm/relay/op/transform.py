@@ -220,17 +220,17 @@ def reshape(data, newshape):
         return _dyn_make.reshape(data, newshape)
     if isinstance(newshape, int):
         newshape = [newshape]
-    if isinstance(newshape, (tuple, list)):
-        tempshape = []
-        for shape in newshape:
-            if isinstance(shape, _expr.IntImm):
-                tempshape.append(shape.value)
-            else:
-                try:
-                    tempshape.append(int(shape))
-                except ValueError as err:
-                    raise RuntimeError("Unrecognized shape type: %s" % err)
-        newshape = tempshape
+    # if isinstance(newshape, (tuple, list)):
+    #     tempshape = []
+    #     for shape in newshape:
+    #         if isinstance(shape, _expr.IntImm):
+    #             tempshape.append(shape.value)
+    #         else:
+    #             try:
+    #                 tempshape.append(int(shape))
+    #             except ValueError as err:
+    #                 raise RuntimeError("Unrecognized shape type: %s" % err)
+    #     newshape = tempshape
     return _make.reshape(data, list(newshape))
 
 

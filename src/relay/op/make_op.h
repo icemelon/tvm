@@ -36,7 +36,7 @@
 namespace tvm {
 namespace relay {
 
-Expr MakeBroadCastTo(Expr data, Array<Integer> shape);
+Expr MakeBroadCastTo(Expr data, Array<IndexExpr> shape);
 
 Expr MakeCast(Expr data, DataType dtype);
 
@@ -50,13 +50,13 @@ Expr MakeBatchMatmul(Expr lhs, Expr rhs);
 
 Expr MakeExpandDims(Expr data, int axis, int num_newaxis);
 
-Expr MakeFull(Expr fill_value, Array<Integer> shape, DataType dtype);
+Expr MakeFull(Expr fill_value, Array<IndexExpr> shape, DataType dtype);
 
 Expr MakeLayoutTransform(Expr data, String src_layout, String dst_layout);
 
 Expr MakeAutoSchedulerLayoutTransform(Expr data, String src_layout, String dst_layout);
 
-Expr MakeOnes(Array<Integer> shape, DataType dtype);
+Expr MakeOnes(Array<IndexExpr> shape, DataType dtype);
 
 Expr MakePad(Expr data, Array<Array<Integer>> pad_width, double pad_value, String pad_mode);
 
@@ -64,7 +64,7 @@ Expr MakeReduce(Expr data, Array<Integer> axis, bool keepdims, bool exclude, Str
 
 Expr MakeRepeat(Expr data, int repeats, int axis);
 
-Expr MakeReshape(Expr data, Array<Integer> newshape);
+Expr MakeReshape(Expr data, Array<IndexExpr> newshape);
 
 Expr MakeReshapeLike(Expr lhs, Expr rhs, int lhs_begin, Integer lhs_end, int rhs_begin,
                      Integer rhs_end);
@@ -91,7 +91,7 @@ Expr MakeUpSampling3D(Expr data, double scale_d, double scale_h, double scale_w,
 Expr MakeVariance(Expr data, Expr mean, Array<Integer> axis, bool keepdims, bool exclude,
                   bool unbiased);
 
-Expr MakeZeros(Array<Integer> shape, DataType dtype);
+Expr MakeZeros(Array<IndexExpr> shape, DataType dtype);
 
 Expr MakeOneHot(Expr indices, Expr on_value, Expr off_value, int depth, int axis, DataType dtype);
 

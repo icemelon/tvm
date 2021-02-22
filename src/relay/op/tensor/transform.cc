@@ -533,7 +533,7 @@ Array<IndexExpr> InferNewShape(const Array<IndexExpr>& data_shape, const Attrs& 
   const auto* param = attrs.as<ReshapeAttrs>();
   Array<IndexExpr> oshape;
   Array<IndexExpr> ishape;
-  Array<Integer> newshape;
+  Array<IndexExpr> newshape;
 
   if (reverse) {
     ishape.Assign(data_shape.rbegin(), data_shape.rend());
@@ -549,7 +549,12 @@ Array<IndexExpr> InferNewShape(const Array<IndexExpr>& data_shape, const Attrs& 
   int infer_idx = -1;
 
   for (size_t i = 0; i < newshape.size(); ++i) {
-    int svalue = newshape[i]->value;
+    if (newshape[i].as<IntImmNode>() == nullptr) {
+      oshape.push_back(newshape[i]);
+      ++src_idx;
+      continue;
+    }
+    int svalue = newshape[i].as<IntImmNode>()->value;
     // special flag handling for shape inference.
     if (svalue > 0) {
       oshape.push_back(newshape[i]);
@@ -593,8 +598,8 @@ Array<IndexExpr> InferNewShape(const Array<IndexExpr>& data_shape, const Attrs& 
       ICHECK_LT(src_idx, ishape.size());
       used_input_dims.insert(src_idx);
       IndexExpr d0 = ishape[src_idx++];
-      Integer d1 = newshape[++i];
-      Integer d2 = newshape[++i];
+      Integer d1 = Downcast<Integer>(newshape[++i]);
+      Integer d2 = Downcast<Integer>(newshape[++i]);
       if (d1->value == -1) {
         ICHECK_NE(d2->value, -1) << "Split dims cannot both be -1.";
         used_output_dims.insert(oshape.size());
@@ -807,21 +812,25 @@ Array<te::Tensor> ReshapeCompute(const Attrs& attrs, const Array<te::Tensor>& in
   Array<IndexExpr> newshape;
   bool newshape_has_any = false;
   for (auto val : out_ttype->shape) {
-    if (val->IsInstance<tir::AnyNode>() || val->IsInstance<tir::VarNode>()) {
-      newshape_has_any = true;
-      break;
+    // if (val->IsInstance<tir::AnyNode>() || val->IsInstance<tir::VarNode>()) {
+    //   newshape_has_any = true;
+    //   break;
+    // }
+    if (auto n = val.as<tir::AnyNode>()) {
+      newshape.push_back(n->ToVar());
     } else {
       newshape.push_back(val);
     }
   }
 
   if (newshape_has_any) {
+    LOG(INFO) << inputs[0]->shape;
     newshape = InferNewShape(inputs[0]->shape, attrs, false);
   }
   return {topi::reshape(inputs[0], newshape)};
 }
 
-Expr MakeReshape(Expr data, Array<Integer> newshape) {
+Expr MakeReshape(Expr data, Array<IndexExpr> newshape) {
   auto attrs = make_object<ReshapeAttrs>();
   attrs->newshape = std::move(newshape);
   static const Op& op = Op::Get("reshape");
@@ -1282,7 +1291,7 @@ bool FullRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
       << "Fill value should be a scalar but has dimension " << fill_value->shape.size() << ".";
 
   std::vector<IndexExpr> oshape;
-  const Array<Integer>& cshape_array = param->shape.value();
+  const Array<IndexExpr>& cshape_array = param->shape.value();
   for (size_t i = 0; i < cshape_array.size(); ++i) {
     oshape.push_back(cshape_array[i]);
   }
@@ -1290,7 +1299,7 @@ bool FullRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
   return true;
 }
 
-Expr MakeFull(Expr fill_value, Array<Integer> shape, DataType dtype) {
+Expr MakeFull(Expr fill_value, Array<IndexExpr> shape, DataType dtype) {
   auto attrs = make_object<InitOpAttrs>();
   attrs->dtype = std::move(dtype);
   attrs->shape = std::move(shape);
@@ -1329,7 +1338,7 @@ bool InitOpRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
   DataType out_dtype = param->dtype;
   std::vector<IndexExpr> oshape;
 
-  const Array<Integer>& cshape_array = param->shape.value();
+  const Array<IndexExpr>& cshape_array = param->shape.value();
   for (size_t i = 0; i < cshape_array.size(); ++i) {
     oshape.push_back(cshape_array[i]);
   }
@@ -1337,7 +1346,7 @@ bool InitOpRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
   return true;
 }
 
-Expr MakeZeros(Array<Integer> shape, DataType dtype) {
+Expr MakeZeros(Array<IndexExpr> shape, DataType dtype) {
   auto attrs = make_object<InitOpAttrs>();
   attrs->shape = std::move(shape);
   attrs->dtype = std::move(dtype);
@@ -1356,7 +1365,7 @@ RELAY_REGISTER_OP("zeros")
     .set_support_level(3)
     .add_type_rel("InitOp", InitOpRel);
 
-Expr MakeOnes(Array<Integer> shape, DataType dtype) {
+Expr MakeOnes(Array<IndexExpr> shape, DataType dtype) {
   auto attrs = make_object<InitOpAttrs>();
   attrs->shape = std::move(shape);
   attrs->dtype = std::move(dtype);
@@ -2123,7 +2132,7 @@ bool CollapseSumToRel(const Array<Type>& types, int num_inputs, const Attrs& att
 
   std::vector<IndexExpr> oshape;
   if (param->shape) {
-    const Array<Integer>& cshape_array = param->shape.value();
+    const Array<IndexExpr>& cshape_array = param->shape.value();
     for (size_t i = 0; i < cshape_array.size(); i++) {
       oshape.push_back(cshape_array[i]);
     }
@@ -2169,7 +2178,7 @@ bool BroadCastToRel(const Array<Type>& types, int num_inputs, const Attrs& attrs
   DataType out_dtype = types[0].as<TensorTypeNode>()->dtype;
   std::vector<IndexExpr> oshape;
 
-  const Array<Integer>& cshape_array = param->shape.value();
+  const Array<IndexExpr>& cshape_array = param->shape.value();
   for (size_t i = 0; i < cshape_array.size(); ++i) {
     oshape.push_back(cshape_array[i]);
   }
@@ -2177,7 +2186,7 @@ bool BroadCastToRel(const Array<Type>& types, int num_inputs, const Attrs& attrs
   return BroadcastRel({types[0], types[1], types[1]}, 2, Attrs(), reporter);
 }
 
-Expr MakeBroadCastTo(Expr data, Array<Integer> shape) {
+Expr MakeBroadCastTo(Expr data, Array<IndexExpr> shape) {
   static const Op& op = Op::Get("broadcast_to");
   auto attrs = make_object<InitOpAttrs>();
 
@@ -3023,7 +3032,7 @@ RELAY_REGISTER_OP("auto_scheduler_layout_transform")
     .set_attr<FTVMCompute>("FTVMCompute", AutoSchedulerLayoutTransformCompute);
 
 // relay._contrib_reverse_reshape
-Expr MakeReverseReshape(Expr data, Array<Integer> newshape) {
+Expr MakeReverseReshape(Expr data, Array<IndexExpr> newshape) {
   auto attrs = make_object<ReshapeAttrs>();
   attrs->newshape = std::move(newshape);
   static const Op& op = Op::Get("contrib_reverse_reshape");

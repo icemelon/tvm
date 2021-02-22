@@ -69,8 +69,8 @@ Expr GroupNormToInferUnpack(const Attrs attrs, Expr data, Expr gamma, Expr beta,
   int ndim = ttype->shape.size();
   int axis = (param->axis < 0) ? param->axis + ndim : param->axis;
   Array<Integer> reduced_axes;
-  Array<Integer> new_shape;
-  Array<Integer> old_shape;
+  Array<IndexExpr> new_shape;
+  Array<IndexExpr> old_shape;
 
   int num_groups = param->num_groups;
   int channel = ttype->shape[axis].as<IntImmNode>()->value;
@@ -82,7 +82,7 @@ Expr GroupNormToInferUnpack(const Attrs attrs, Expr data, Expr gamma, Expr beta,
     auto val = ttype->shape[i].as<IntImmNode>()->value;
 
     // Save the old shape to reshape later
-    old_shape.push_back(val);
+    old_shape.push_back(Integer(val));
     if (i == axis) {
       new_shape.push_back(num_groups);
       new_shape.push_back(channel / num_groups);
@@ -92,7 +92,7 @@ Expr GroupNormToInferUnpack(const Attrs attrs, Expr data, Expr gamma, Expr beta,
     if (i >= axis) {
       reduced_axes.push_back(i + 1);
     }
-    new_shape.push_back(val);
+    new_shape.push_back(Integer(val));
   }
 
   data = Reshape(data, new_shape);

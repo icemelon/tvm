@@ -421,11 +421,11 @@ static inline long double ToScalar(const runtime::NDArray& array, size_t i = 0) 
  * \param array Input NDArray
  * \return Converted Array.
  */
-static inline Array<Integer> ToVector(const runtime::NDArray& array) {
+static inline Array<IndexExpr> ToVector(const runtime::NDArray& array) {
   size_t ndim = array.Shape().size();
   ICHECK_EQ(ndim, 1) << "This function should only be used for 1D NDArrays";
   size_t len = array.Shape().front();
-  Array<Integer> out;
+  Array<IndexExpr> out;
   for (size_t i = 0; i < len; ++i) {
     long double elem_val = ToScalar(array, i);
     out.push_back(Integer(IntImm(DataType::Int(32), static_cast<int64_t>(elem_val))));
@@ -562,7 +562,8 @@ inline Expr ZerosLike(Expr e) {
 }
 
 inline Expr Zeros(Array<IndexExpr> shape, DataType dtype) {
-  return MakeZeros(CheckConstantShapeArrayInteger(shape), dtype);
+  // return MakeZeros(CheckConstantShapeArrayInteger(shape), dtype);
+  return MakeZeros(shape, dtype);
 }
 
 inline Expr OnesLike(Expr e) {
@@ -571,7 +572,8 @@ inline Expr OnesLike(Expr e) {
 }
 
 inline Expr Ones(Array<IndexExpr> shape, DataType dtype) {
-  return MakeOnes(CheckConstantShapeArrayInteger(shape), dtype);
+  // return MakeOnes(CheckConstantShapeArrayInteger(shape), dtype);
+  return MakeOnes(shape, dtype);
 }
 
 inline Expr CollapseSumLike(Expr e) {
@@ -624,7 +626,8 @@ static inline Expr GreaterEqual(const Expr& lhs, const Expr& rhs) {
 }
 
 static inline Expr Full(Expr fill_value, Array<IndexExpr> shape, DataType dtype) {
-  return MakeFull(fill_value, CheckConstantShapeArrayInteger(shape), dtype);
+  // return MakeFull(fill_value, CheckConstantShapeArrayInteger(shape), dtype);
+  return MakeFull(fill_value, shape, dtype);
 }
 
 static inline Expr Conv2D(Expr data, Expr weight, Array<IndexExpr> strides,
@@ -648,7 +651,7 @@ static inline Expr Prod(Expr data, Array<Integer> axis, bool keepdims, bool excl
   return MakeReduce(data, axis, keepdims, exclude, "prod");
 }
 
-static inline Expr Reshape(Expr data, Array<Integer> newshape) {
+static inline Expr Reshape(Expr data, Array<IndexExpr> newshape) {
   return MakeReshape(data, newshape);
 }
 
@@ -671,7 +674,8 @@ static inline Expr Pad(Expr data, Array<Array<IndexExpr>> pad_width, double pad_
 static inline Expr Tile(Expr data, Array<Integer> reps) { return MakeTile(data, reps); }
 
 static inline Expr BroadCastTo(Expr data, Array<IndexExpr> shape) {
-  return MakeBroadCastTo(data, CheckConstantShapeArrayInteger(shape));
+  // return MakeBroadCastTo(data, CheckConstantShapeArrayInteger(shape));
+  return MakeBroadCastTo(data, shape);
 }
 
 Expr StopFusion(Expr data);

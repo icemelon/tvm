@@ -49,7 +49,7 @@ class SimplifyReshape {
   Expr callback(const Expr& pre, const Expr& post, const Map<DFPattern, Array<Expr>>& node_map) {
     auto x = node_map[x_][0];
     bool const_shape = true;
-    Array<Integer> newshape;
+    Array<IndexExpr> newshape;
     for (auto dim : Downcast<TensorType>(pre->checked_type())->shape) {
       if (dim.as<IntImmNode>() == nullptr) {
         const_shape = false;

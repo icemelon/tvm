@@ -327,7 +327,7 @@ static bool IsIntInArray(const Array<Integer>& axis, int v) {
 
 static Expr ReshapeToMatchAxis(Expr scale, const Array<PrimExpr>& shape,
                                const Array<Integer>& axis) {
-  Array<Integer> arr;
+  Array<PrimExpr> arr;
   for (size_t i = 0; i < shape.size(); i++) {
     if (IsIntInArray(axis, i)) {
       auto node = shape[i].as<IntImmNode>();
@@ -335,9 +335,9 @@ static Expr ReshapeToMatchAxis(Expr scale, const Array<PrimExpr>& shape,
         // if the shape is not a constant, use normal transform
         return Expr();
       }
-      arr.push_back(node->value);
+      arr.push_back(shape[i]);
     } else {
-      arr.push_back(1);
+      arr.push_back(Integer(1));
     }
   }
   return MakeReshape(scale, std::move(arr));
