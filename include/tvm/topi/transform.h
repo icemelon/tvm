@@ -611,6 +611,7 @@ inline Tensor strided_slice(const Tensor& x, const Array<PrimExpr>& begin,
   is_static &= IsConstIntArray(strides);
 
   Array<PrimExpr> out_shape;
+  /* // disable this
   if (!is_static) {
     ICHECK_EQ(strides.size(), src_tensor_dim);
     for (size_t i = 0; i < src_tensor_dim; ++i) {
@@ -627,6 +628,7 @@ inline Tensor strided_slice(const Tensor& x, const Array<PrimExpr>& begin,
         },
         name, tag);
   }
+  */
 
   // Setup the ranges.
   // NOTE: this code duplicates the shape inference logic relay.op
@@ -689,7 +691,14 @@ inline Tensor strided_slice(const Tensor& x, const Array<PrimExpr>& begin,
     };
 
     int64_t begin_i = index_canonicalization(begin_vec[i]);
-    int64_t end_i = index_canonicalization(end_vec[i]);
+    int64_t end_i;
+    if (dim_i < 0) {
+      // symbolic dimension
+      CHECK_GT(end_vec[i], 0);
+      end_i = end_vec[i];
+    } else {
+      end_i = index_canonicalization(end_vec[i]);
+    }
 
     int interval = std::abs(end_i - begin_i);
     int slice_size =

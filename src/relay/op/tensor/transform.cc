@@ -2333,7 +2333,9 @@ bool StridedSliceRel(const Array<Type>& types, int num_inputs, const Attrs& attr
       // can get complicated and not very helpful.
       const int64_t* p_dim_size = tir::as_const_int(dshape[i]);
       if (!p_dim_size) {
-        oshape[i] = dshape[i];
+        CHECK_EQ(stride_v, 1);
+        CHECK_GE(end_v, 0);
+        oshape[i] = tir::make_const(dshape[i].dtype(), end_v - begin_v);
         continue;
       }
       int64_t dim_size = p_dim_size[0];
@@ -2511,7 +2513,7 @@ Array<te::Tensor> StridedSliceCompute(const Attrs& attrs, const Array<te::Tensor
   begin = param->begin.value();
   end = param->end.value();
   strides = param->strides.value();
-  if (IsDynamic(out_type)) {
+  /*if (IsDynamic(out_type)) {
     auto input = inputs[0];
     size_t src_tensor_dim = input->shape.size();
     ICHECK(begin.size() == src_tensor_dim)
@@ -2540,7 +2542,8 @@ Array<te::Tensor> StridedSliceCompute(const Attrs& attrs, const Array<te::Tensor
           return input(real_indices);
         },
         std::string{"T_strided_slice_dynamic"}, std::string{topi::kInjective})};
-  } else {
+  } else*/
+  {
     for (size_t i = 0; i < begin.size(); ++i) {
       begin_expr.push_back(begin[i]);
     }
