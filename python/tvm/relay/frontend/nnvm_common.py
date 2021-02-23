@@ -66,7 +66,8 @@ def _softmax_op(new_op):
 
     def _impl(inputs, attrs, _dtype="float32"):
         axis = attrs.get_int("axis", -1)
-        use_length = attrs.get_bool("use_length", False)
+        # use_length = attrs.get_bool("use_length", False)
+        use_length = False
         if use_length:
             # The second arg is valid_length. We can use sequence mask to mask the input before
             # computing softmax
