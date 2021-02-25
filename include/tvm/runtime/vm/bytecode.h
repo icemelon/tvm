@@ -68,6 +68,7 @@ enum class Opcode {
   ShapeOf = 17U,
   ReshapeTensor = 18U,
   DeviceCopy = 19U,
+  TensorView = 20U,
 };
 
 /*! \brief A single virtual machine instruction.
@@ -214,6 +215,9 @@ struct Instruction {
       Index src_device_type;
       /*! \brief The destination device type. */
       Index dst_device_type;
+    };
+    struct /* TensorView Operands */ {
+      RegName tensor;
     };
   };
 
@@ -383,6 +387,8 @@ struct Instruction {
    */
   static Instruction DeviceCopy(RegName src, Index src_device_type, Index dst_device_type,
                                 RegName dst);
+
+  static Instruction TensorView(RegName tensor, RegName dst);
 
   Instruction();
   Instruction(const Instruction& instr);
