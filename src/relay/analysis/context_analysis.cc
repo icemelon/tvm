@@ -60,6 +60,7 @@
 #include <tvm/relay/type.h>
 #include <tvm/runtime/c_runtime_api.h>
 #include <tvm/runtime/container.h>
+#include <tvm/runtime/device_api.h>
 #include <tvm/runtime/object.h>
 
 namespace tvm {
@@ -344,11 +345,9 @@ class ContextAnalyzer : public MixedModeVisitor {
     // We only support tuple with the same of device.
     Tuple tup = GetRef<Tuple>(tn);
     if (tn->fields.size() > 0) {
-      auto device = DeviceFor(tup->fields[0]);
       for (size_t i = 1; i < tup->fields.size(); i++) {
-        device = Unify(device, DeviceFor(tup->fields[i]));
+        DeviceFor(tup->fields[i]);
       }
-      Unify(device, DeviceFor(tup));
     }
     MixedModeVisitor::VisitExpr_(tn);
   }
@@ -356,8 +355,9 @@ class ContextAnalyzer : public MixedModeVisitor {
   void VisitExpr_(const TupleGetItemNode* tn) final {
     TupleGetItem item = GetRef<TupleGetItem>(tn);
 
-    Unify(DeviceFor(item), DeviceFor(item->tuple));
-
+    if (const auto* tuple = tn->tuple.as<TupleNode>()) {
+      DeviceFor(tuple->fields[tn->index]);
+    }
     MixedModeVisitor::VisitExpr_(tn);
   }
 
@@ -373,6 +373,14 @@ class ContextAnalyzer : public MixedModeVisitor {
       this->VisitClause(c);
       MixedModeVisitor::VisitLeaf(c->rhs);
     }
+  }
+
+  void VisitExpr_(const IfNode* in) final {
+    auto device = Unify(DeviceFor(in->cond), DeviceType(cpu_ctx_));
+    device = Unify(device, DeviceFor(GetRef<If>(in)));
+    MixedModeVisitor::VisitExpr(in->cond);
+    MixedModeVisitor::VisitExpr(in->true_branch);
+    MixedModeVisitor::VisitExpr(in->false_branch);
   }
 
   void VisitExpr_(const GlobalVarNode* gvn) final { DeviceFor(GetRef<GlobalVar>(gvn)); }
@@ -690,13 +698,30 @@ class ContextAnalyzer : public MixedModeVisitor {
 
 }  // namespace analysis
 
+// Pretty print the annotated relay program with device info
+runtime::TypedPackedFunc<String(ObjectRef)> MakeAnalysisAnnotator(const AnalysisResultMap& results) {
+  auto ret = [results](ObjectRef ref) {
+    Expr expr = Downcast<Expr>(ref);
+    String str = "";
+    if (results.count(expr)) {
+      TVMContext ctx = results.at(expr);
+      str = "<" + std::string(runtime::DeviceName(ctx.device_type)) +
+            std::to_string(ctx.device_id) + ">";
+    }
+    return str;
+  };
+  return ret;
+}
+
 AnalysisResultMap ContextAnalysis(const IRModule& mod, const TVMContext& default_context) {
   // TODO(@zhiics) Apply the pass to all functions/entries
   auto entry = mod->GetGlobalVar("main");
   auto ca = analysis::ContextAnalyzer(mod, entry, default_context);
   auto expr = mod->Lookup(entry);
   ca.VisitExpr(expr);
-  return ca.Results();
+  auto ret = ca.Results();
+  // LOG(INFO) << AsText(mod, false, MakeAnalysisAnnotator(ret));
+  return ret;
 }
 
 // Unpack the device type and deivce id fields in TVMContext for PackedFunc calls

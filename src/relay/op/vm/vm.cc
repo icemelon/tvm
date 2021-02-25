@@ -229,5 +229,40 @@ Expr ReshapeTensor(Expr data, Expr shape, Array<PrimExpr> newshape) {
 
 TVM_REGISTER_GLOBAL("relay.op.vm.reshape_tensor").set_body_typed(ReshapeTensor);
 
+bool TensorViewRel(const Array<Type>& types,
+                      int num_inputs,
+                      const Attrs& attrs,
+                      const TypeReporter& reporter) {
+  CHECK_EQ(types.size(), 2u);
+  auto view_attrs = attrs.as<TensorViewAttrs>();
+  CHECK(view_attrs);
+  auto tt = types[0].as<TensorTypeNode>();
+  CHECK(tt) << "input must be tensor type";
+  reporter->Assign(types[1], GetRef<TensorType>(tt));
+  return true;
+}
+
+RELAY_REGISTER_OP("vm.tensor_view")
+.describe(R"code(Use VM tensor_view instruction to create view of a tensor.
+)code" TVM_ADD_FILELINE)
+.set_num_inputs(1)
+.add_argument("data", "Tensor", "The input tensor")
+.add_type_rel("TensorView", TensorViewRel)
+.set_support_level(10)
+.set_attr<TOpPattern>("TOpPattern", kOpaque)
+.set_attr<TOpIsStateful>("TOpIsStateful", false)
+.set_attr<TNonComputational>("TNonComputational", true)
+.set_attr<FInferCorrectLayout>("FInferCorrectLayout", ElemwiseArbitraryLayout);
+
+Expr TensorView(Expr data, Integer axis) {
+  static const Op& op = Op::Get("vm.tensor_view");
+  auto attrs = make_object<TensorViewAttrs>();
+  attrs->axis = std::move(axis);
+  return Call(op, {data}, Attrs(attrs), {});
+}
+
+TVM_REGISTER_GLOBAL("relay.op.vm.tensor_view").set_body_typed(TensorView);
+
+
 }  // namespace relay
 }  // namespace tvm

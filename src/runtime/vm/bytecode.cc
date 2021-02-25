@@ -127,6 +127,8 @@ Instruction::Instruction(const Instruction& instr) {
       this->src_device_type = instr.src_device_type;
       this->dst_device_type = instr.dst_device_type;
       return;
+    case Opcode::TensorView:
+      this->tensor = instr.tensor;
     default:
       std::ostringstream out;
       out << "Invalid instruction " << static_cast<int>(instr.op);
@@ -233,6 +235,9 @@ Instruction& Instruction::operator=(const Instruction& instr) {
       this->src_device_type = instr.src_device_type;
       this->dst_device_type = instr.dst_device_type;
       return *this;
+    case Opcode::TensorView:
+      this->tensor = instr.tensor;
+      return *this;
     default:
       std::ostringstream out;
       out << "Invalid instruction " << static_cast<int>(instr.op);
@@ -255,6 +260,7 @@ Instruction::~Instruction() {
     case Opcode::ShapeOf:
     case Opcode::ReshapeTensor:
     case Opcode::DeviceCopy:
+    case Opcode::TensorView:
     case Opcode::Fatal:
       return;
     case Opcode::AllocTensor:
@@ -374,6 +380,14 @@ Instruction Instruction::DeviceCopy(RegName src, Index src_device_type, Index ds
   instr.src = src;
   instr.src_device_type = src_device_type;
   instr.dst_device_type = dst_device_type;
+  return instr;
+}
+
+Instruction Instruction::TensorView(RegName src, RegName dst) {
+  Instruction instr;
+  instr.op = Opcode::TensorView;
+  instr.dst = dst;
+  instr.src = src;
   return instr;
 }
 
@@ -624,6 +638,10 @@ void InstructionPrint(std::ostream& os, const Instruction& instr) {
     case Opcode::DeviceCopy: {
       os << "device_copy $" << instr.dst << " $" << instr.src << " " << instr.dst_device_type << " "
          << instr.src_device_type;
+      break;
+    }
+    case Opcode::TensorView: {
+      os << "tensor_view $" << instr.dst << " $" << instr.src ;
       break;
     }
     default:
