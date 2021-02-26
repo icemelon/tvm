@@ -168,19 +168,23 @@ struct NDArray::Internal {
   }
 };
 
-NDArray NDArray::CreateView(std::vector<int64_t> shape, DLDataType dtype) {
+NDArray NDArray::CreateView(std::vector<int64_t> shape, DLDataType dtype, int64_t elem_offset) {
   ICHECK(data_ != nullptr);
   ICHECK(get_mutable()->dl_tensor.strides == nullptr) << "Can only create view for compact tensor";
   NDArray ret = Internal::Create(shape, dtype, get_mutable()->dl_tensor.ctx);
+  size_t dtype_size = (dtype.bits * dtype.lanes + 7) / 8;
+  size_t byte_offset = dtype_size * elem_offset;
+  // Currently TVM only accepts DLTensor with byte_offset 0, so we directly increase the
+  // offset to the data pointer
   ret.get_mutable()->dl_tensor.byte_offset = this->get_mutable()->dl_tensor.byte_offset;
   size_t curr_size = GetDataSize(this->get_mutable()->dl_tensor);
   size_t view_size = GetDataSize(ret.get_mutable()->dl_tensor);
-  ICHECK_LE(view_size, curr_size)
+  ICHECK_LE(byte_offset + view_size, curr_size)
       << "Tries to create a view that has bigger memory than current one";
   // increase ref count
   get_mutable()->IncRef();
   ret.get_mutable()->manager_ctx = get_mutable();
-  ret.get_mutable()->dl_tensor.data = get_mutable()->dl_tensor.data;
+  ret.get_mutable()->dl_tensor.data = get_mutable()->dl_tensor.data + byte_offset;
   return ret;
 }
 

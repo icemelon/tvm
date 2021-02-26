@@ -748,10 +748,12 @@ class VMFunctionCompiler : ExprFunctor<void(const Expr& expr)> {
                  })
           .Match("vm.tensor_view",
                  [this](const Array<Expr>& args, const Attrs& attrs, const Array<Type>& type_arg) {
-                   CHECK_EQ(args.size(), 1u);
+                   CHECK_EQ(args.size(), 2u);
                    this->VisitExpr(args[0]);
                    auto tensor_reg = last_register_;
-                   // Emit(Instruction::TensorView(tensor_reg, NewRegister()));
+                   this->VisitExpr(args[1]);
+                   auto index_reg = last_register_;
+                   Emit(Instruction::TensorView(tensor_reg, index_reg, NewRegister()));
                  })
           .Match("memory.kill",
                  [](const Array<Expr>& args, const Attrs& attrs, const Array<Type>& type_arg) {

@@ -33,6 +33,7 @@
 #include <tvm/relay/transform.h>
 #include <tvm/support/logging.h>
 #include <tvm/target/target.h>
+#include <tvm/runtime/device_api.h>
 
 #include <cstdint>
 #include <cstdio>
@@ -424,6 +425,9 @@ Pass ManifestAlloc(Target target_host, Map<tvm::Integer, tvm::Target> targets) {
         mod = relay::transform::InferType()(mod);
 
         TVMContext fallback_ctx;
+        for (auto it : targets) {
+          LOG(INFO) << it.second;
+        }
         if (targets.size() > 1) {
           auto pass_ctx = PassContext::Current();
           Optional<Integer> opt_fallback_dev =
@@ -437,7 +441,9 @@ Pass ManifestAlloc(Target target_host, Map<tvm::Integer, tvm::Target> targets) {
           fallback_ctx.device_type = static_cast<DLDeviceType>((*it).first->value);
           fallback_ctx.device_id = 0;
         }
+        LOG(INFO) << runtime::DeviceName(fallback_ctx.device_type);
         auto ca = ContextAnalysis(mod, fallback_ctx);
+        LOG(FATAL) << "aaa";
 
         auto glob_funcs = mod->functions;
         for (const auto& it : glob_funcs) {

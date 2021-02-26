@@ -363,7 +363,7 @@ void VirtualMachine::RunLoop() {
   while (true) {
   main_loop:
     auto const& instr = code_[this->pc_];
-    DLOG(INFO) << "Executing(" << pc_ << "): " << instr;
+    LOG(INFO) << "Executing(" << pc_ << "): " << instr;
 
     switch (instr.op) {
       case Opcode::Move: {
@@ -609,7 +609,23 @@ void VirtualMachine::RunLoop() {
         goto main_loop;
       }
       case Opcode::TensorView: {
+        auto op_begin = std::chrono::high_resolution_clock::now();
+        auto tensor = Downcast<NDArray>(ReadRegister(instr.tensor_view.tensor));
+        auto index = LoadScalarInt(instr.tensor_view.index);
+        auto shape = tensor.Shape();
+        std::vector<int64_t> new_shape;
+        size_t offset = index;
+        for (size_t i = 1; i < shape.size(); ++i) {
+          new_shape.push_back(shape[i]);
+          offset *= shape[i];
+        }
+        NDArray dst = tensor.CreateView(new_shape, tensor->dtype, offset);
+        WriteRegister(instr.dst, dst);
         pc_++;
+        auto op_end = std::chrono::high_resolution_clock::now();
+        double op_duration =
+            std::chrono::duration_cast<std::chrono::duration<double>>(op_end - op_begin).count();
+        LOG(INFO) << "tensor view: " << op_duration * 1e6;
         goto main_loop;
       }
       default:

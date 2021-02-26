@@ -80,6 +80,7 @@ static const Op& shape_of_op = Op::Get("vm.shape_of");
 static const Op& invoke_tvm_op = Op::Get("vm.invoke_tvm_op");
 static const Op& shape_func_of = Op::Get("vm.shape_func");
 static const Op& reshape_tensor_op = Op::Get("vm.reshape_tensor");
+static const Op& tensor_view_op = Op::Get("vm.tensor_view");
 
 class DeviceDomain;
 using DeviceDomainPtr = std::shared_ptr<DeviceDomain>;
@@ -169,6 +170,7 @@ class ContextAnalyzer : public MixedModeVisitor {
         mod_(mod),
         current_func_(current_func),
         default_context_(default_context) {
+    LOG(INFO) << "Default context: " << default_context_.device_type;
     cpu_ctx_.device_type = kDLCPU;
     cpu_ctx_.device_id = 0;
   }
@@ -291,13 +293,17 @@ class ContextAnalyzer : public MixedModeVisitor {
       UnifyInvokeTVMOpCall(cn);
     } else if (call->op == reshape_tensor_op) {
       UnifyReshapeTensorCall(cn);
+    } else if (call->op == tensor_view_op) {
+      UnifyTensorViewCall(cn);
     } else if (call->op.as<FunctionNode>()) {
+      LOG(INFO) << "Function node: " << AsText(call, false);
       UnifyFunctionCall(cn);
     } else if (call->op.as<GlobalVarNode>()) {
       UnifyGlobalVarCall(cn);
     } else if (call->op.as<VarNode>()) {
       UnifyVarCall(cn);
     } else {
+      LOG(INFO) << "else: " << AsText(call, false);
       UnifyCall(call, cn->args, {call}, Bottom());
       MixedModeVisitor::VisitExpr_(cn);
     }
@@ -328,16 +334,22 @@ class ContextAnalyzer : public MixedModeVisitor {
 
   void VisitExpr_(const FunctionNode* fn) final {
     auto func = GetRef<Function>(fn);
-    // No need to step into fused primitive functions as they are handled as
-    // a whole.
-    if (fn->HasNonzeroAttr(attr::kPrimitive)) {
-      return;
-    }
-
     auto device = Unify(DeviceFor(func), DeviceFor(fn->body));
-    for (const auto& it : fn->params) {
-      DeviceFor(it);
-    }
+    /*
+    if (fn->HasNonzeroAttr(attr::kPrimitive)) {
+      LOG(INFO) << "Unify prim func: " << AsText(GetRef<Function>(fn), false);
+      auto device = DeviceFor(fn->params[0]);
+      for (const auto& param : fn->params) {
+        Unify(device, DeviceFor(param));
+      }
+      // No need to step into fused primitive functions as they are handled as
+      // a whole.
+    } else {
+      // for (const auto& it : fn->params) {
+      //   DeviceFor(it);
+      // }
+      MixedModeVisitor::VisitExpr(fn->body);
+      }*/
     MixedModeVisitor::VisitExpr(fn->body);
   }
 
@@ -395,6 +407,8 @@ class ContextAnalyzer : public MixedModeVisitor {
     for (const auto& it : expr_to_device_) {
       auto device = Lookup(it.second);
       if (device->IsEmptyDomain()) {
+        LOG(INFO) << "Assign default context (" << default_context_.device_type << ") to "
+                  << AsText(it.first, false);
         ret[it.first] = default_context_;
       } else {
         ret[it.first] = device->ctx_;
@@ -501,10 +515,12 @@ class ContextAnalyzer : public MixedModeVisitor {
     ICHECK_EQ(call->args.size(), 3U);
 
     Expr storage = call->args[0];
-    Expr shape = call->args[1];
+    Expr offset = call->args[1];
+    Expr shape = call->args[2];
     Unify(DeviceFor(storage), DeviceFor(GetRef<Call>(call)));
 
     // The shape for alloc_tensor should be on CPU.
+    Unify(DeviceFor(offset), DeviceType(cpu_ctx_));
     Unify(DeviceFor(shape), DeviceType(cpu_ctx_));
     MixedModeVisitor::VisitExpr(shape);
   }
@@ -534,6 +550,7 @@ class ContextAnalyzer : public MixedModeVisitor {
     ICHECK_EQ(call->args.size(), 3U);
     Tuple inps = Downcast<Tuple>(call->args[1]);
     Tuple outputs = Downcast<Tuple>(call->args[2]);
+    Unify(DeviceFor(GetRef<Call>(call)), DeviceFor(call->args[0]));
     UnifyCall(call->args[0], inps->fields, outputs->fields, Bottom());
     MixedModeVisitor::VisitExpr_(call);
   }
@@ -563,29 +580,50 @@ class ContextAnalyzer : public MixedModeVisitor {
     MixedModeVisitor::VisitExpr(shape);
   }
 
+  void UnifyTensorViewCall(const CallNode* call) {
+    // [data, shape]
+    ICHECK_EQ(call->args.size(), 2U);
+    Expr tensor = call->args[0];
+    Expr index = call->args[1];
+    Unify(DeviceFor(GetRef<Call>(call)), DeviceFor(tensor));
+    // The index field of tensor_view is always on the CPU.
+    Unify(DeviceFor(index), DeviceType(cpu_ctx_));
+    MixedModeVisitor::VisitExpr(tensor);
+    MixedModeVisitor::VisitExpr(index);
+  }
+
   void UnifyFunctionCall(const CallNode* call) {
     auto device = DeviceFor(GetRef<Call>(call));
-    // Unify the arguments of the caller.
-    for (const auto& arg : call->args) {
-      device = Unify(device, DeviceFor(arg));
-      MixedModeVisitor::VisitExpr(arg);
-    }
-
-    // Unify the parameters of the callee.
-    if (!call->op->IsInstance<FunctionNode>()) return;
     Function func = Downcast<Function>(call->op);
-    for (const auto& param : func->params) {
-      device = Unify(device, DeviceFor(param));
+
+    for (size_t i = 0; i < call->args.size(); ++i) {
+      auto arg = call->args[i];
+      auto param = func->params[i];
+      Unify(DeviceFor(arg), DeviceFor(param));
+      MixedModeVisitor::VisitExpr(arg);
       MixedModeVisitor::VisitExpr(param);
     }
+    // // Unify the arguments of the caller.
+    // for (const auto& arg : call->args) {
+    //   //device = Unify(device, DeviceFor(arg));
+    //   MixedModeVisitor::VisitExpr(arg);
+    // }
+
+    // // Unify the parameters of the callee.
+    
+    // for (const auto& param : func->params) {
+    //   //device = Unify(device, DeviceFor(param));
+    //   MixedModeVisitor::VisitExpr(param);
+    // }
 
     // Unify the function expression and its body
-    Unify(device, DeviceFor(call->op));
-    Unify(device, DeviceFor(func->body));
+    Unify(device, DeviceFor(func));
+    //Unify(device, DeviceFor(func->body));
+    //LOG(INFO) << "Function body: " << AsText(func->body, false);
 
     // Step into the callee. It will be skipped if the callee if a primitive
     // function
-    MixedModeVisitor::VisitExpr(call->op);
+    MixedModeVisitor::VisitExpr(func);
   }
 
   // Invoke a global function.
@@ -601,6 +639,7 @@ class ContextAnalyzer : public MixedModeVisitor {
       Expr arg = call->args[i];
       Expr param = func->params[i];
       MixedModeVisitor::VisitExpr(arg);
+      MixedModeVisitor::VisitExpr(param);
 
       // Save the the arg to function mapping for closures as it will
       // be invoked/unified later.
@@ -720,7 +759,7 @@ AnalysisResultMap ContextAnalysis(const IRModule& mod, const TVMContext& default
   auto expr = mod->Lookup(entry);
   ca.VisitExpr(expr);
   auto ret = ca.Results();
-  // LOG(INFO) << AsText(mod, false, MakeAnalysisAnnotator(ret));
+  LOG(INFO) << AsText(mod, false, MakeAnalysisAnnotator(ret));
   return ret;
 }
 

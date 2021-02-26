@@ -1598,7 +1598,8 @@ def _mx_foreach(inputs, attrs, subgraphs, dtype_info, mod):
         loop_body_args = [None] * len(inputs)
         for k, v in enumerate(in_data_locs):
             assert loop_body_args[v] is None
-            loop_body_args[v] = _op.take(data[k], loop_iter, 0)
+            loop_body_args[v] = _op.vm.tensor_view(data[k], loop_iter)
+            #loop_body_args[v] = _op.take(data[k], loop_iter, 0)
         for k, v in enumerate(in_state_locs):
             assert loop_body_args[v] is None
             loop_body_args[v] = prev_states[k]

@@ -53,14 +53,6 @@ struct ReshapeTensorAttrs : public tvm::AttrsNode<ReshapeTensorAttrs> {
   }
 };
 
-struct TensorViewAttrs : public tvm::AttrsNode<TensorViewAttrs> {
-  Integer axis;
-
-  TVM_DECLARE_ATTRS(TensorViewAttrs, "relay.attrs.TensorViewAttrs") {
-    TVM_ATTR_FIELD(axis).set_default(0).describe("The axis on which to create view.");
-  }
-};
-
 }  // namespace relay
 }  // namespace tvm
 #endif  // TVM_RELAY_ATTRS_VM_H_

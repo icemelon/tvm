@@ -202,7 +202,7 @@ Doc RelayTextPrinter::AllocTypeVar(const TypeVar& var) {
  * \param var The input variable.
  * \return The corresponding name.
  */
-Doc RelayTextPrinter::AllocVar(const Var& var) {
+Doc RelayTextPrinter::AllocVar(const Var& var, bool optional_info) {
   // still print if ir is malformed, but show the error.
   if (memo_.count(var)) {
     Doc val = memo_[var];
@@ -218,6 +218,9 @@ Doc RelayTextPrinter::AllocVar(const Var& var) {
   memo_[var] = val;
   if (var->type_annotation.defined()) {
     val << ": " << Print(var->type_annotation);
+  }
+  if (optional_info) {
+    val << PrintOptionalInfo(var);
   }
   return val;
 }
@@ -404,7 +407,7 @@ Doc RelayTextPrinter::PrintFunc(const Doc& prefix, const relay::Function& fn) {
   doc << "(";
   std::vector<Doc> params;
   for (Var param : fn->params) {
-    params.push_back(AllocVar(param));
+    params.push_back(AllocVar(param, true));
   }
   for (const Doc& d : PrintFuncAttrs(fn->attrs)) {
     params.push_back(d);
@@ -473,7 +476,9 @@ Doc RelayTextPrinter::VisitExpr_(const CallNode* op) {
   // this places op closer to its call site
   std::vector<Doc> args;
   for (const Expr& arg : op->args) {
-    args.push_back(Print(arg));
+    auto doc = Print(arg);
+    doc << PrintOptionalInfo(arg);
+    args.push_back(doc);
   }
   for (const Doc& d : PrintCallAttrs(op->attrs, op->op)) {
     args.push_back(d);

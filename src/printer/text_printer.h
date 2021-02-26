@@ -98,7 +98,7 @@ class RelayTextPrinter : public ExprFunctor<Doc(const Expr&)>,
    * \param var The input variable.
    * \return The corresponding name.
    */
-  Doc AllocVar(const Var& var);
+  Doc AllocVar(const Var& var, bool optional_info = false);
   bool IsUnique(const Expr& expr);
   bool AlwaysInline(const Expr& expr);
 
@@ -337,7 +337,7 @@ class TIRTextPrinter : public StmtFunctor<Doc(const Stmt&)>,
   template <typename T>
   static Doc PrintConstScalar(DataType dtype, const T& data);
   Doc GetUniqueName(std::string prefix);
-  Doc AllocVar(const Var& var);
+  Doc AllocVar(const Var& var, bool optional_info = false);
   Doc AllocBuf(const Buffer& buffer);
   /*!
    * \brief special method to render vectors of docs with a separator

@@ -442,6 +442,11 @@ VMInstructionSerializer SerializeInstruction(const Instruction& instr) {
       fields.assign({instr.src, instr.src_device_type, instr.dst_device_type, instr.dst});
       break;
     }
+    case Opcode::TensorView: {
+      // Number of fields = 3
+      fields.assign({instr.tensor_view.tensor, instr.tensor_view.index, instr.dst});
+      break;
+    }
     default:
       LOG(FATAL) << "Invalid opcode" << static_cast<int>(instr.op);
       break;
@@ -733,6 +738,11 @@ Instruction DeserializeInstruction(const VMInstructionSerializer& instr) {
       DCHECK_EQ(instr.fields.size(), 4U);
       return Instruction::DeviceCopy(instr.fields[0], instr.fields[1], instr.fields[2],
                                      instr.fields[3]);
+    }
+    case Opcode::TensorView: {
+      // Number of fields = 3
+      DCHECK_EQ(instr.fields.size(), 3U);
+      return Instruction::TensorView(instr.fields[0], instr.fields[1], instr.fields[2]);
     }
     default:
       LOG(FATAL) << "Invalid opcode" << instr.opcode;

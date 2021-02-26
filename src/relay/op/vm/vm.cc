@@ -233,20 +233,26 @@ bool TensorViewRel(const Array<Type>& types,
                       int num_inputs,
                       const Attrs& attrs,
                       const TypeReporter& reporter) {
-  CHECK_EQ(types.size(), 2u);
-  auto view_attrs = attrs.as<TensorViewAttrs>();
-  CHECK(view_attrs);
-  auto tt = types[0].as<TensorTypeNode>();
-  CHECK(tt) << "input must be tensor type";
-  reporter->Assign(types[1], GetRef<TensorType>(tt));
+  CHECK_EQ(types.size(), 3u);
+  auto data = types[0].as<TensorTypeNode>();
+  auto index = types[1].as<TensorTypeNode>();
+  ICHECK(data) << "Input must be tensor type";
+  ICHECK(index && index->shape.size() == 0) << "Index must be 0-dim tensor type";
+  ICHECK(index->dtype.is_int()) << "Index must be int type";
+  std::vector<IndexExpr> oshape;
+  for (size_t i = 1; i < data->shape.size(); ++i) {
+    oshape.push_back(data->shape[i]);
+  }
+  reporter->Assign(types[2], TensorType(oshape, data->dtype));
   return true;
 }
 
 RELAY_REGISTER_OP("vm.tensor_view")
 .describe(R"code(Use VM tensor_view instruction to create view of a tensor.
 )code" TVM_ADD_FILELINE)
-.set_num_inputs(1)
+.set_num_inputs(2)
 .add_argument("data", "Tensor", "The input tensor")
+.add_argument("index", "Tensor", "The index in axis 0 to create the view")
 .add_type_rel("TensorView", TensorViewRel)
 .set_support_level(10)
 .set_attr<TOpPattern>("TOpPattern", kOpaque)
@@ -254,15 +260,12 @@ RELAY_REGISTER_OP("vm.tensor_view")
 .set_attr<TNonComputational>("TNonComputational", true)
 .set_attr<FInferCorrectLayout>("FInferCorrectLayout", ElemwiseArbitraryLayout);
 
-Expr TensorView(Expr data, Integer axis) {
+Expr TensorView(Expr data, Expr index) {
   static const Op& op = Op::Get("vm.tensor_view");
-  auto attrs = make_object<TensorViewAttrs>();
-  attrs->axis = std::move(axis);
-  return Call(op, {data}, Attrs(attrs), {});
+  return Call(op, {data, index}, Attrs(), {});
 }
 
 TVM_REGISTER_GLOBAL("relay.op.vm.tensor_view").set_body_typed(TensorView);
-
 
 }  // namespace relay
 }  // namespace tvm

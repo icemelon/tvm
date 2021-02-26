@@ -22,6 +22,7 @@
  * \brief The bytecode for Relay virtual machine.
  */
 
+#include <tvm/runtime/device_api.h>
 #include <tvm/runtime/vm/bytecode.h>
 #include <tvm/support/logging.h>
 
@@ -128,7 +129,9 @@ Instruction::Instruction(const Instruction& instr) {
       this->dst_device_type = instr.dst_device_type;
       return;
     case Opcode::TensorView:
-      this->tensor = instr.tensor;
+      this->tensor_view.tensor = instr.tensor_view.tensor;
+      this->tensor_view.index = instr.tensor_view.index;
+      return;
     default:
       std::ostringstream out;
       out << "Invalid instruction " << static_cast<int>(instr.op);
@@ -236,7 +239,8 @@ Instruction& Instruction::operator=(const Instruction& instr) {
       this->dst_device_type = instr.dst_device_type;
       return *this;
     case Opcode::TensorView:
-      this->tensor = instr.tensor;
+      this->tensor_view.tensor = instr.tensor_view.tensor;
+      this->tensor_view.index = instr.tensor_view.index;
       return *this;
     default:
       std::ostringstream out;
@@ -383,11 +387,12 @@ Instruction Instruction::DeviceCopy(RegName src, Index src_device_type, Index ds
   return instr;
 }
 
-Instruction Instruction::TensorView(RegName src, RegName dst) {
+Instruction Instruction::TensorView(RegName tensor, RegName index, RegName dst) {
   Instruction instr;
   instr.op = Opcode::TensorView;
   instr.dst = dst;
-  instr.src = src;
+  instr.tensor_view.tensor = tensor;
+  instr.tensor_view.index = index;
   return instr;
 }
 
@@ -623,7 +628,7 @@ void InstructionPrint(std::ostream& os, const Instruction& instr) {
       os << "alloc_storage $" << instr.dst << " $" << instr.alloc_storage.allocation_size << " "
          << instr.alloc_storage.alignment << " "
          << DLDataType2String(instr.alloc_storage.dtype_hint) << " "
-         << instr.alloc_storage.device_type;
+         << std::string(DeviceName(instr.alloc_storage.device_type));
       break;
     }
     case Opcode::ShapeOf: {
@@ -641,7 +646,8 @@ void InstructionPrint(std::ostream& os, const Instruction& instr) {
       break;
     }
     case Opcode::TensorView: {
-      os << "tensor_view $" << instr.dst << " $" << instr.src ;
+      os << "tensor_view $" << instr.dst << " $" << instr.tensor_view.tensor << "[$"
+         << instr.tensor_view.index << "]";
       break;
     }
     default:

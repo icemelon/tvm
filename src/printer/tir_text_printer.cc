@@ -572,7 +572,7 @@ Doc TIRTextPrinter::GetUniqueName(std::string prefix) {
   return Doc::Text(unique_prefix);
 }
 
-Doc TIRTextPrinter::AllocVar(const Var& var) {
+Doc TIRTextPrinter::AllocVar(const Var& var, bool optional_info) {
   const auto& it = memo_var_.find(var);
   if (it != memo_var_.end()) {
     return it->second;

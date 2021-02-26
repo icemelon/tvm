@@ -120,9 +120,10 @@ class NDArray : public ObjectRef {
    * \brief Create a NDArray that shares the data memory with the current one.
    * \param shape The shape of the new array.
    * \param dtype The data type of the new array.
+   * \param elem_offset The element offset in the current array.
    * \note The memory size of new array must be smaller than the current one.
    */
-  TVM_DLL NDArray CreateView(std::vector<int64_t> shape, DLDataType dtype);
+  TVM_DLL NDArray CreateView(std::vector<int64_t> shape, DLDataType dtype, int64_t elem_offset = 0);
   /*!
    * \brief Create a reference view of NDArray that
    *  represents as DLManagedTensor.

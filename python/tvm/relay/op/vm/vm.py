@@ -100,5 +100,5 @@ def reshape_tensor(data, shape, newshape):
     return _ffi_api.reshape_tensor(data, shape, newshape)
 
 
-def tensor_view(data, axis=0):
-    return _ffi_api.tensor_view(data, axis)
+def tensor_view(data, index):
+    return _ffi_api.tensor_view(data, index)

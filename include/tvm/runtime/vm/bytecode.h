@@ -218,7 +218,8 @@ struct Instruction {
     };
     struct /* TensorView Operands */ {
       RegName tensor;
-    };
+      RegName index;
+    } tensor_view;
   };
 
   /*!
@@ -388,7 +389,7 @@ struct Instruction {
   static Instruction DeviceCopy(RegName src, Index src_device_type, Index dst_device_type,
                                 RegName dst);
 
-  static Instruction TensorView(RegName tensor, RegName dst);
+  static Instruction TensorView(RegName tensor, RegName index, RegName dst);
 
   Instruction();
   Instruction(const Instruction& instr);
